@@ -93,13 +93,10 @@ def parse_user_input(input_text):
         input_text = input_text.strip()
         if not input_text:
             return None
-            
         if input_text.startswith('@'):
             input_text = input_text[1:]
-        
         if input_text.startswith('[id') and '|' in input_text:
             return input_text.split('[id')[1].split('|')[0]
-        
         if 'vk.com/' in input_text:
             parts = input_text.split('vk.com/')[1].split('/')[0]
             if parts.startswith('id'):
@@ -110,10 +107,8 @@ def parse_user_input(input_text):
                     return str(users[0]['id'])
             except:
                 return None
-        
         if input_text.isdigit():
             return input_text
-            
         return None
     except Exception as e:
         logger.error(f"Ошибка парсинга ввода: {e}")
@@ -136,17 +131,11 @@ def get_role(user_id):
 def build_keyboard(role):
     try:
         kb = VkKeyboard(one_time=False)
-
         kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "entered"}))
         kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "exited"}))
         kb.add_line()
-        kb.add_button("👥 Мл. Администратор", VkKeyboardColor.SECONDARY, payload=json.dumps({"cmd": "junior"}))
-        kb.add_button("👤 Ст. Администратор", VkKeyboardColor.PRIMARY, payload=json.dumps({"cmd": "senior"}))
-        kb.add_line()
-        kb.add_button("👑 Руководство", VkKeyboardColor.PRIMARY, payload=json.dumps({"cmd": "management"}))
-        kb.add_line()
         kb.add_button("🌐 Общий онлайн", VkKeyboardColor.SECONDARY, payload=json.dumps({"cmd": "all_online"}))
-
+        # Кнопки управления ролями только для руководства
         if role == "Руководство":
             kb.add_line()
             kb.add_button("➕ Мл. Администратор", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "add_junior"}))
@@ -157,27 +146,28 @@ def build_keyboard(role):
             kb.add_line()
             kb.add_button("➕ Руководство", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "add_management"}))
             kb.add_button("➖ Руководство", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "remove_management"}))
-
         return kb.get_keyboard()
     except Exception as e:
         logger.error(f"Ошибка создания клавиатуры: {e}")
         return VkKeyboard.get_empty_keyboard()
 
 # ================= Отправка сообщений =================
-def send_msg(peer_id, text, target_user_id=None):
+def send_msg(peer_id, text, target_user_id=None, sticker_id=None):
     try:
         if target_user_id is not None:
             role = get_role(target_user_id)
             keyboard = build_keyboard(role)
         else:
             keyboard = VkKeyboard.get_empty_keyboard()
-        
-        vk.messages.send(
-            peer_id=peer_id,
-            message=text,
-            random_id=get_random_id(),
-            keyboard=keyboard
-        )
+        params = {
+            "peer_id": peer_id,
+            "message": text,
+            "random_id": get_random_id(),
+            "keyboard": keyboard
+        }
+        if sticker_id:
+            params["sticker_id"] = sticker_id
+        vk.messages.send(**params)
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {e}")
         try:
@@ -246,17 +236,7 @@ def list_management():
     return "👑 Руководство:\n" + "\n".join(lines)
 
 def list_all_online():
-    now = time.time()
-    lines = []
-
-    # Руководство
-    lines.append(list_management())
-    # Ст. Администраторы
-    lines.append(list_senior())
-    # Мл. Администраторы
-    lines.append(list_junior())
-    
-    return "\n\n".join(lines)
+    return "\n\n".join([list_management(), list_senior(), list_junior()])
 
 # ================= Вход/выход =================
 def enter_user(user_id, peer_id):
@@ -323,12 +303,6 @@ while True:
                             enter_user(user_id, peer_id)
                         elif action == "exited":
                             exit_user(user_id, peer_id)
-                        elif action == "junior":
-                            send_msg(peer_id, list_junior(), user_id)
-                        elif action == "senior":
-                            send_msg(peer_id, list_senior(), user_id)
-                        elif action == "management":
-                            send_msg(peer_id, list_management(), user_id)
                         elif action == "all_online":
                             send_msg(peer_id, list_all_online(), user_id)
 
@@ -353,6 +327,7 @@ while True:
                         first, last = get_user_info(target_id)
                         target_name = f"{first} {last}"
 
+                        # Добавление/удаление
                         if act == "add_junior":
                             if target_id in admins:
                                 send_msg(peer_id, f"⚠️ {target_name} уже Мл. Администратор", user_id)
@@ -390,7 +365,8 @@ while True:
                             else:
                                 management.append(target_id_int)
                                 save_management()
-                                send_msg(peer_id, f"✅ {target_name} назначен руководством", user_id)
+                                # Отправка текста и стикера
+                                send_msg(peer_id, f"👑 {target_name} назначается Руководителем!", user_id, sticker_id=145)
                         elif act == "remove_management":
                             target_id_int = int(target_id)
                             if target_id_int not in management:
