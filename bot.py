@@ -2,66 +2,69 @@ import os
 import json
 import time
 import logging
-from dotenv import load_dotenv
 import vk_api
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
-from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from vk_api.utils import get_random_id
+from vk_api.keyboard import VkKeyboard, VkKeyboardColor
+from dotenv import load_dotenv
 
-# ================= Настройка логирования =================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-# ================= Загрузка токенов =================
+# ================== Настройка ==================
 load_dotenv()
 TOKEN = os.getenv("VK_TOKEN")
-GROUP_ID = int(os.getenv("GROUP_ID"))
+GROUP_ID = int(os.getenv("GROUP_ID", 0))
 
-if not TOKEN or not GROUP_ID:
-    logger.error("VK_TOKEN или GROUP_ID не указаны в .env")
-    exit(1)
+if not TOKEN or GROUP_ID == 0:
+    raise ValueError("VK_TOKEN или GROUP_ID не указаны в .env")
 
-# ================= Инициализация VK =================
+# Логирование
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Создание папки для логов
+os.makedirs("logs", exist_ok=True)
+
+# ================== VK API ==================
 vk_session = vk_api.VkApi(token=TOKEN)
 vk = vk_session.get_api()
 longpoll = VkBotLongPoll(vk_session, GROUP_ID)
 
-# ================= Файлы для хранения =================
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
+# ================== Файлы хранения ==================
+admins_file = "admins.json"          # младшие админы
+senior_file = "senior_admins.json"   # старшие админы
+management_file = "management.json"  # руководство
 
-ADMINS_FILE = os.path.join(DATA_DIR, "admins.json")           # младшие админы онлайн
-SENIOR_FILE = os.path.join(DATA_DIR, "senior_admins.json")   # старшие админы
-MANAGEMENT_FILE = os.path.join(DATA_DIR, "management.json")  # руководство
-
-# ================= Загрузка данных =================
+# ================== Загрузка данных ==================
 def load_json(file_path, default):
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
             return json.load(f)
     return default
 
-admins = load_json(ADMINS_FILE, {})        # {user_id: {first_name, last_name, start_time}}
-senior_admins = load_json(SENIOR_FILE, []) # [user_id]
-management = load_json(MANAGEMENT_FILE, [])# [user_id]
+admins = load_json(admins_file, {})
+senior_admins = load_json(senior_file, [])
+management = load_json(management_file, [])
 
-# ================= Сохранение данных =================
-def save_admins(): 
-    with open(ADMINS_FILE, "w", encoding="utf-8") as f:
-        json.dump(admins, f, ensure_ascii=False, indent=2)
+# ================== Сохранение ==================
+def save_json(file_path, data):
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-def save_senior():
-    with open(SENIOR_FILE, "w", encoding="utf-8") as f:
-        json.dump(senior_admins, f, ensure_ascii=False, indent=2)
+# ================== Вспомогательные функции ==================
+def is_management(user_id):
+    return str(user_id) in [str(m) for m in management]
 
-def save_management():
-    with open(MANAGEMENT_FILE, "w", encoding="utf-8") as f:
-        json.dump(management, f, ensure_ascii=False, indent=2)
+def is_senior(user_id):
+    return int(user_id) in senior_admins
 
-# ================= Вспомогательные функции =================
+def is_junior(user_id):
+    return str(user_id) in admins
+
+def get_user_role(user_id):
+    if is_management(user_id): return "Руководство"
+    elif is_senior(user_id): return "Старший админ"
+    elif is_junior(user_id): return "Мл.админ"
+    return "Нет роли"
+
 def get_user_info(user_id):
     try:
         user = vk.users.get(user_ids=user_id)[0]
@@ -72,248 +75,199 @@ def get_user_info(user_id):
 def format_time(seconds):
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
-    if h and m:
-        return f"{h}ч {m}м"
-    elif h:
-        return f"{h}ч"
-    elif m:
-        return f"{m}м"
+    if h and m: return f"{h}ч {m}м"
+    elif h: return f"{h}ч"
+    elif m: return f"{m}м"
     return "меньше минуты"
 
-def parse_user_input(input_text):
-    input_text = input_text.strip()
-    if input_text.startswith('@'):
-        input_text = input_text[1:]
-    if input_text.startswith('[id') and '|' in input_text:
-        return input_text.split('[id')[1].split('|')[0]
-    if 'vk.com/' in input_text:
-        parts = input_text.split('vk.com/')[1].split('/')[0]
-        if parts.startswith('id'):
-            return parts[2:]
+def parse_user_input(text):
+    text = text.strip()
+    if text.startswith('@'): text = text[1:]
+    if text.startswith('[id') and '|' in text:
+        try: return text.split('[id')[1].split('|')[0]
+        except: return None
+    if 'vk.com/' in text:
         try:
-            return str(vk.users.get(user_ids=parts)[0]['id'])
-        except:
-            return None
-    if input_text.isdigit():
-        return input_text
+            part = text.split('vk.com/')[1].split('/')[0]
+            if part.startswith('id'): return part[2:]
+            user = vk.users.get(user_ids=part)
+            if user: return str(user[0]['id'])
+        except: return None
+    if text.isdigit(): return text
     return None
 
-def get_role(user_id):
-    uid = int(user_id)
-    if uid in management:
-        return "Руководство"
-    elif uid in senior_admins:
-        return "Старший админ"
-    elif str(uid) in admins:
-        return "Младший админ"
-    return "Гость"
-
-# ================= Клавиатура =================
-def build_keyboard(user_id):
-    role = get_role(user_id)
+# ================== Клавиатуры ==================
+def online_keyboard():
     kb = VkKeyboard(one_time=False)
-
-    # Кнопки для всех
-    kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd":"entered"}))
-    kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd":"exited"}))
+    kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE)
+    kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE)
     kb.add_line()
-    kb.add_button("👥 Мл. админы", VkKeyboardColor.SECONDARY, payload=json.dumps({"cmd":"junior"}))
-    kb.add_button("👤 Ст. админы", VkKeyboardColor.PRIMARY, payload=json.dumps({"cmd":"senior"}))
+    kb.add_button("👥 Мл.админы", VkKeyboardColor.SECONDARY)
+    kb.add_button("👤 Ст.админы", VkKeyboardColor.PRIMARY)
     kb.add_line()
-    kb.add_button("👑 Руководство", VkKeyboardColor.PRIMARY, payload=json.dumps({"cmd":"management"}))
-
-    # Кнопки для руководства
-    if role == "Руководство":
-        kb.add_line()
-        kb.add_button("➕ Мл. админ", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd":"add_junior"}))
-        kb.add_button("➖ Мл. админ", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd":"remove_junior"}))
-        kb.add_line()
-        kb.add_button("➕ Ст. админ", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd":"add_senior"}))
-        kb.add_button("➖ Ст. админ", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd":"remove_senior"}))
-        kb.add_line()
-        kb.add_button("➕ Руководство", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd":"add_management"}))
-        kb.add_button("➖ Руководство", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd":"remove_management"}))
-
+    kb.add_button("👑 Руководство", VkKeyboardColor.PRIMARY)
     return kb.get_keyboard()
 
-# ================= Отправка сообщений =================
-def send_msg(peer_id, text, user_id=None):
-    vk.messages.send(
-        peer_id=peer_id,
-        message=text,
-        random_id=get_random_id(),
-        keyboard=build_keyboard(user_id) if user_id else None
-    )
+def management_keyboard():
+    kb = VkKeyboard(one_time=False)
+    kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE)
+    kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE)
+    kb.add_line()
+    kb.add_button("👥 Мл.админы", VkKeyboardColor.SECONDARY)
+    kb.add_button("👤 Ст.админы", VkKeyboardColor.PRIMARY)
+    kb.add_line()
+    kb.add_button("👑 Руководство", VkKeyboardColor.PRIMARY)
+    kb.add_line()
+    kb.add_button("➕ Мл.админ", VkKeyboardColor.POSITIVE)
+    kb.add_button("➖ Мл.админ", VkKeyboardColor.NEGATIVE)
+    kb.add_line()
+    kb.add_button("➕ Ст.админ", VkKeyboardColor.POSITIVE)
+    kb.add_button("➖ Ст.админ", VkKeyboardColor.NEGATIVE)
+    kb.add_line()
+    kb.add_button("➕ Руководство", VkKeyboardColor.POSITIVE)
+    kb.add_button("➖ Руководство", VkKeyboardColor.NEGATIVE)
+    return kb.get_keyboard()
 
-# ================= Онлайн списки =================
-def list_junior():
-    now = time.time()
-    lines = []
-    for uid, info in admins.items():
-        online = now - info['start_time']
-        lines.append(f"[id{uid}|{info['first_name']} {info['last_name']}] — 🕒 {format_time(online)}")
-    if not lines: return "Младших админов нет онлайн."
-    return "👥 Младшие админы онлайн:\n" + "\n".join(lines)
+# ================== Отправка сообщений ==================
+def send_message(peer_id, text, user_id=None):
+    try:
+        vk.messages.send(peer_id=peer_id, message=text, random_id=get_random_id(),
+                         keyboard=management_keyboard() if is_management(user_id) else online_keyboard())
+    except Exception as e:
+        logger.error(f"Ошибка отправки сообщения: {e}")
 
-def list_senior():
-    now = time.time()
-    lines = []
-    for uid in senior_admins:
-        online = "✅" if str(uid) in admins else "❌"
-        first, last = get_user_info(uid)
-        lines.append(f"[id{uid}|{first} {last}] — {online}")
-    if not lines: return "Старших админов нет."
-    return "👤 Старшие админы:\n" + "\n".join(lines)
+# ================== Главный цикл ==================
+waiting_for_input = {}
 
-def list_management():
-    now = time.time()
-    lines = []
-    for uid in management:
-        online = "✅" if str(uid) in admins else "❌"
-        first, last = get_user_info(uid)
-        lines.append(f"[id{uid}|{first} {last}] — {online}")
-    if not lines: return "Руководство отсутствует."
-    return "👑 Руководство:\n" + "\n".join(lines)
-
-# ================= Ожидание ввода от руководства =================
-waiting_input = {}
-
-# ================= Главный цикл =================
-logger.info("Бот запущен...")
+logger.info("Бот запущен")
 for event in longpoll.listen():
     try:
-        if event.type == VkBotEventType.MESSAGE_NEW:
-            msg = event.message
-            user_id = str(msg["from_id"])
-            peer_id = msg["peer_id"]
-            text = msg.get("text", "")
-            payload = msg.get("payload")
-            action = None
-            if payload:
-                try:
-                    action = json.loads(payload).get("cmd")
-                except:
-                    action = None
+        if event.type != VkBotEventType.MESSAGE_NEW:
+            continue
+        msg = event.message
+        peer_id = msg["peer_id"]
+        user_id = str(msg["from_id"])
+        text = msg.get("text", "").lower()
 
-            # ---------- /start ----------
-            if text.lower() == "/start":
-                send_msg(peer_id, "👋 Привет! Меню бота:")
+        # Обработка ожидания роли
+        if user_id in waiting_for_input:
+            action = waiting_for_input[user_id]
+            target_id = parse_user_input(text)
+            if not target_id:
+                send_message(peer_id, "❌ Не удалось распознать пользователя", user_id)
+                waiting_for_input.pop(user_id)
                 continue
 
-            # ---------- Обработка payload ----------
-            if action:
-                role = get_role(user_id)
+            first, last = get_user_info(target_id)
+            target_name = f"{first} {last}"
 
-                if action == "entered":
-                    if user_id in admins:
-                        send_msg(peer_id, "⚠️ Вы уже вошли", user_id)
-                    else:
-                        first, last = get_user_info(user_id)
-                        admins[user_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
-                        save_admins()
-                        send_msg(peer_id, f"✅ Младший админ [id{user_id}|{first} {last}] вошел", user_id)
-                
-                elif action == "exited":
-                    if user_id not in admins:
-                        send_msg(peer_id, "⚠️ Вы не в сети", user_id)
-                    else:
-                        first = admins[user_id]['first_name']
-                        last = admins[user_id]['last_name']
-                        del admins[user_id]
-                        save_admins()
-                        send_msg(peer_id, f"❌ [id{user_id}|{first} {last}] вышел из сети", user_id)
-                
-                elif action == "junior":
-                    send_msg(peer_id, list_junior(), user_id)
-                elif action == "senior":
-                    send_msg(peer_id, list_senior(), user_id)
-                elif action == "management":
-                    send_msg(peer_id, list_management(), user_id)
-                
-                # ---------- Управление ролями (только руководство) ----------
-                elif action.startswith(("add_", "remove_")):
-                    if role != "Руководство":
-                        send_msg(peer_id, "⛔ Недостаточно прав", user_id)
-                        continue
-                    waiting_input[user_id] = action
-                    send_msg(peer_id, "Отправьте ID или ссылку пользователя для действия", user_id)
-                continue
-
-            # ---------- Ввод от руководителя ----------
-            if user_id in waiting_input:
-                act = waiting_input[user_id]
-                target_id = parse_user_input(text)
-                if not target_id:
-                    send_msg(peer_id, "❌ Не удалось распознать пользователя", user_id)
-                    continue
-                first, last = get_user_info(target_id)
-                target_name = f"{first} {last}"
-
-                # Добавление/удаление
-                if act == "add_junior":
-                    if target_id in admins:
-                        send_msg(peer_id, "⚠️ Уже младший админ", user_id)
-                    else:
-                        admins[target_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
-                        save_admins()
-                        send_msg(peer_id, f"✅ {target_name} назначен младшим админом", user_id)
-                elif act == "remove_junior":
-                    if target_id not in admins:
-                        send_msg(peer_id, "⚠️ Не является младшим админом", user_id)
-                    else:
-                        del admins[target_id]
-                        save_admins()
-                        send_msg(peer_id, f"❌ {target_name} удален из младших админов", user_id)
-                elif act == "add_senior":
-                    if int(target_id) in senior_admins:
-                        send_msg(peer_id, "⚠️ Уже старший админ", user_id)
-                    else:
-                        senior_admins.append(int(target_id))
-                        save_senior()
-                        send_msg(peer_id, f"✅ {target_name} назначен старшим админом", user_id)
-                elif act == "remove_senior":
-                    if int(target_id) not in senior_admins:
-                        send_msg(peer_id, "⚠️ Не старший админ", user_id)
-                    else:
-                        senior_admins.remove(int(target_id))
-                        save_senior()
-                        send_msg(peer_id, f"❌ {target_name} удален из старших админов", user_id)
-                elif act == "add_management":
-                    if int(target_id) in management:
-                        send_msg(peer_id, "⚠️ Уже руководство", user_id)
-                    else:
-                        management.append(int(target_id))
-                        save_management()
-                        send_msg(peer_id, f"✅ {target_name} назначен руководством", user_id)
-                elif act == "remove_management":
-                    if int(target_id) not in management:
-                        send_msg(peer_id, "⚠️ Не руководство", user_id)
-                    else:
-                        management.remove(int(target_id))
-                        save_management()
-                        send_msg(peer_id, f"❌ {target_name} удален из руководства", user_id)
-
-                del waiting_input[user_id]
-                continue
-
-            # ---------- Текст без payload ----------
-            if text.lower() == "вошел":
-                if user_id in admins:
-                    send_msg(peer_id, "⚠️ Вы уже в сети", user_id)
+            if action == "➕ мл.админ":
+                if target_id in admins:
+                    send_message(peer_id, f"⚠️ {target_name} уже Мл.админ", user_id)
                 else:
-                    first, last = get_user_info(user_id)
-                    admins[user_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
-                    save_admins()
-                    send_msg(peer_id, f"✅ Младший админ [id{user_id}|{first} {last}] вошел", user_id)
-            elif text.lower() == "вышел":
-                if user_id not in admins:
-                    send_msg(peer_id, "⚠️ Вы не в сети", user_id)
+                    admins[target_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
+                    save_json(admins_file, admins)
+                    send_message(peer_id, f"✅ {target_name} назначен Мл.админом", user_id)
+
+            elif action == "➖ мл.админ":
+                if target_id not in admins:
+                    send_message(peer_id, f"⚠️ {target_name} не Мл.админ", user_id)
                 else:
-                    first = admins[user_id]['first_name']
-                    last = admins[user_id]['last_name']
-                    del admins[user_id]
-                    save_admins()
-                    send_msg(peer_id, f"❌ [id{user_id}|{first} {last}] вышел", user_id)
+                    admins.pop(target_id)
+                    save_json(admins_file, admins)
+                    send_message(peer_id, f"✅ {target_name} удален из Мл.админов", user_id)
+
+            elif action == "➕ ст.админ":
+                if int(target_id) in senior_admins:
+                    send_message(peer_id, f"⚠️ {target_name} уже Ст.админ", user_id)
+                else:
+                    senior_admins.append(int(target_id))
+                    save_json(senior_file, senior_admins)
+                    send_message(peer_id, f"✅ {target_name} назначен Ст.админом", user_id)
+
+            elif action == "➖ ст.админ":
+                if int(target_id) not in senior_admins:
+                    send_message(peer_id, f"⚠️ {target_name} не Ст.админ", user_id)
+                else:
+                    senior_admins.remove(int(target_id))
+                    save_json(senior_file, senior_admins)
+                    send_message(peer_id, f"✅ {target_name} удален из Ст.админов", user_id)
+
+            elif action == "➕ руководство":
+                if int(target_id) in management:
+                    send_message(peer_id, f"⚠️ {target_name} уже Руководство", user_id)
+                else:
+                    management.append(int(target_id))
+                    save_json(management_file, management)
+                    send_message(peer_id, f"✅ {target_name} назначен Руководством", user_id)
+
+            elif action == "➖ руководство":
+                if int(target_id) not in management:
+                    send_message(peer_id, f"⚠️ {target_name} не Руководство", user_id)
+                else:
+                    management.remove(int(target_id))
+                    save_json(management_file, management)
+                    send_message(peer_id, f"✅ {target_name} удален из Руководства", user_id)
+
+            waiting_for_input.pop(user_id)
+            continue
+
+        # Команда старт
+        if text == "старт":
+            send_message(peer_id, "👋 Главное меню", user_id)
+            continue
+
+        # Вход/Выход
+        if text == "вошел":
+            if user_id in admins:
+                send_message(peer_id, "⚠️ Вы уже авторизованы", user_id)
+            else:
+                first, last = get_user_info(user_id)
+                admins[user_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
+                save_json(admins_file, admins)
+                send_message(peer_id, f"✅ Мл.админ {first} {last} вошел", user_id)
+
+        elif text == "вышел":
+            if user_id not in admins:
+                send_message(peer_id, "⚠️ Вы не авторизованы", user_id)
+            else:
+                first, last = admins[user_id]["first_name"], admins[user_id]["last_name"]
+                admins.pop(user_id)
+                save_json(admins_file, admins)
+                send_message(peer_id, f"❌ Мл.админ {first} {last} вышел", user_id)
+
+        elif text == "список":
+            lines = []
+            now = time.time()
+            if admins:
+                lines.append("👥 Мл.админы онлайн:")
+                for uid, info in admins.items():
+                    role = get_user_role(uid)
+                    lines.append(f"[id{uid}|{info['first_name']} {info['last_name']}] — {role} — {format_time(now - info['start_time'])}")
+            if senior_admins:
+                lines.append("\n👤 Старшие админы:")
+                for uid in senior_admins:
+                    first, last = get_user_info(uid)
+                    status = "✅ В сети" if str(uid) in admins else "❌ Не в сети"
+                    lines.append(f"[id{uid}|{first} {last}] — {status}")
+            if management:
+                lines.append("\n👑 Руководство:")
+                for uid in management:
+                    first, last = get_user_info(uid)
+                    status = "✅ В сети" if str(uid) in admins else "❌ Не в сети"
+                    lines.append(f"[id{uid}|{first} {last}] — {status}")
+            send_message(peer_id, "\n".join(lines), user_id)
+
+        # Обработка кнопок роли
+        if text in ["➕ мл.админ","➖ мл.админ","➕ ст.админ","➖ ст.админ","➕ руководство","➖ руководство"]:
+            if not is_management(user_id):
+                send_message(peer_id, "⛔ Недостаточно прав", user_id)
+            else:
+                waiting_for_input[user_id] = text
+                send_message(peer_id, "Введите ID или ссылку на пользователя:", user_id)
 
     except Exception as e:
-        logger.error(f"Ошибка: {e}", exc_info=True)
+        logger.error(f"Ошибка события: {e}", exc_info=True)
+        try:
+            send_message(peer_id, "❌ Произошла ошибка. Попробуйте позже.", user_id)
+        except: pass
