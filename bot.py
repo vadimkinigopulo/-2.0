@@ -108,28 +108,23 @@ def parse_user_input(input_text):
         if not input_text:
             return None
             
-        # Убираем @ в начале
         if input_text.startswith('@'):
             input_text = input_text[1:]
         
-        # Обработка [id123|name]
         if input_text.startswith('[id') and '|' in input_text:
             return input_text.split('[id')[1].split('|')[0]
         
-        # Обработка ссылок vk.com
         if 'vk.com/' in input_text:
             parts = input_text.split('vk.com/')[1].split('/')[0]
             if parts.startswith('id'):
                 return parts[2:]
             try:
-                # Пытаемся получить ID по короткому имени
                 users = vk.users.get(user_ids=parts)
                 if users:
                     return str(users[0]['id'])
             except:
                 return None
         
-        # Если просто число
         if input_text.isdigit():
             return input_text
             
@@ -152,12 +147,14 @@ def get_role(user_id):
         return "Гость"
 
 # ================= Клавиатура =================
-def build_keyboard(user_id):
+def build_keyboard(role):
+    """
+    Строит клавиатуру на основе роли пользователя, КОТОРОМУ отправляется сообщение
+    """
     try:
-        role = get_role(user_id)
         kb = VkKeyboard(one_time=False)
 
-        # Кнопки для всех
+        # Базовые кнопки для всех
         kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "entered"}))
         kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "exited"}))
         kb.add_line()
@@ -166,7 +163,7 @@ def build_keyboard(user_id):
         kb.add_line()
         kb.add_button("👑 Руководство", VkKeyboardColor.PRIMARY, payload=json.dumps({"cmd": "management"}))
 
-        # Кнопки для руководства
+        # Дополнительные кнопки только для руководства
         if role == "Руководство":
             kb.add_line()
             kb.add_button("➕ Мл. админ", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "add_junior"}))
@@ -184,9 +181,18 @@ def build_keyboard(user_id):
         return VkKeyboard.get_empty_keyboard()
 
 # ================= Отправка сообщений =================
-def send_msg(peer_id, text, user_id=None):
+def send_msg(peer_id, text, target_user_id=None):
+    """
+    Отправляет сообщение с клавиатурой, соответствующей роли ПОЛУЧАТЕЛЯ
+    target_user_id - ID пользователя, КОТОРОМУ отправляется сообщение
+    """
     try:
-        keyboard = build_keyboard(user_id) if user_id is not None else VkKeyboard.get_empty_keyboard()
+        if target_user_id is not None:
+            role = get_role(target_user_id)
+            keyboard = build_keyboard(role)
+        else:
+            keyboard = VkKeyboard.get_empty_keyboard()
+        
         vk.messages.send(
             peer_id=peer_id,
             message=text,
@@ -195,6 +201,15 @@ def send_msg(peer_id, text, user_id=None):
         )
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {e}")
+        try:
+            vk.messages.send(
+                peer_id=peer_id,
+                message=text,
+                random_id=get_random_id(),
+                keyboard=VkKeyboard.get_empty_keyboard()
+            )
+        except:
+            pass
 
 # ================= Онлайн списки =================
 def list_junior():
@@ -273,7 +288,6 @@ while True:
                     action = None
                     if payload:
                         try:
-                            # Проверяем, является ли payload строкой или уже словарем
                             if isinstance(payload, str):
                                 payload_data = json.loads(payload)
                             else:
@@ -284,7 +298,7 @@ while True:
 
                     # ---------- /start ----------
                     if text.lower() == "/start":
-                        send_msg(peer_id, "👋 Привет! Бот успешно запущен!", user_id)
+                        send_msg(peer_id, "👋 Привет! Меню бота:", user_id)
                         continue
 
                     # ---------- Обработка payload ----------
