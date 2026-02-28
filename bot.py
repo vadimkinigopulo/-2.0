@@ -39,8 +39,8 @@ longpoll = VkBotLongPoll(vk_session, GROUP_ID)
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-ADMINS_FILE = os.path.join(DATA_DIR, "admins.json")           # Мл. администраторы онлайн
-SENIOR_FILE = os.path.join(DATA_DIR, "senior_admins.json")   # Ст. администраторы
+ADMINS_FILE = os.path.join(DATA_DIR, "admins.json")           # Мл. Администраторы онлайн
+SENIOR_FILE = os.path.join(DATA_DIR, "senior_admins.json")   # Ст. Администраторы
 MANAGEMENT_FILE = os.path.join(DATA_DIR, "management.json")  # Руководство
 
 # ================= Загрузка данных =================
@@ -118,7 +118,7 @@ def get_role(user_id):
     try:
         uid = int(user_id)
         if uid in management:
-            return "Руководство"
+            return "Руководитель"
         elif uid in senior_admins:
             return "Ст. Администратор"
         elif str(uid) in admins:
@@ -135,8 +135,7 @@ def build_keyboard(role):
         kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "exited"}))
         kb.add_line()
         kb.add_button("🌐 Общий онлайн", VkKeyboardColor.SECONDARY, payload=json.dumps({"cmd": "all_online"}))
-        # Кнопки управления ролями только для руководства
-        if role == "Руководство":
+        if role == "Руководитель":
             kb.add_line()
             kb.add_button("➕ Мл. Администратор", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "add_junior"}))
             kb.add_button("➖ Мл. Администратор", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "remove_junior"}))
@@ -170,73 +169,73 @@ def send_msg(peer_id, text, target_user_id=None, sticker_id=None):
         vk.messages.send(**params)
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {e}")
-        try:
-            vk.messages.send(
-                peer_id=peer_id,
-                message=text,
-                random_id=get_random_id(),
-                keyboard=VkKeyboard.get_empty_keyboard()
-            )
-        except:
-            pass
 
 # ================= Онлайн функции =================
 def format_duration(seconds):
     h = seconds // 3600
     m = (seconds % 3600) // 60
     s = seconds % 60
-    return f"{h}ч {m}м {s}с" if h or m or s else "меньше секунды"
+    return f"{h}ч {m}м {s}с"
 
 def list_junior():
     now = time.time()
     lines = []
     online_admins = {uid: info for uid, info in admins.items() if int(uid) not in senior_admins and int(uid) not in management}
     if not online_admins:
-        return "👥 Мл. Администраторов нет онлайн."
+        return "👥 Мл. Администраторов нет онлайн.", 0
     for uid, info in online_admins.items():
         start_time = info['start_time']
         online_str = format_duration(int(now - start_time))
         first = info.get('first_name', 'Неизвестно')
         last = info.get('last_name', 'Неизвестно')
         lines.append(f"[id{uid}|{first} {last}] — 🟢 {online_str}")
-    return "👥 Мл. Администраторы онлайн:\n" + "\n".join(lines)
+    return "👥 Мл. Администраторы онлайн:\n" + "\n".join(lines), len(online_admins)
 
 def list_senior():
     now = time.time()
     lines = []
+    online_count = 0
     if not senior_admins:
-        return "👤 Ст. Администраторов нет онлайн."
+        return "👤 Ст. Администраторов нет онлайн.", 0
     for uid in senior_admins:
         uid_str = str(uid)
         if uid_str in admins:
             start_time = admins[uid_str]['start_time']
             online_str = format_duration(int(now - start_time))
             status = f"🟢 {online_str}"
+            online_count += 1
         else:
             status = "🔴 Не в сети"
         first, last = get_user_info(uid)
         lines.append(f"[id{uid}|{first} {last}] — {status}")
-    return "👤 Ст. Администраторы:\n" + "\n".join(lines)
+    return "👤 Ст. Администраторы:\n" + "\n".join(lines), online_count
 
 def list_management():
     now = time.time()
     lines = []
+    online_count = 0
     if not management:
-        return "👑 Руководство отсутствует."
+        return "👑 Руководство отсутствует.", 0
     for uid in management:
         uid_str = str(uid)
         if uid_str in admins:
             start_time = admins[uid_str]['start_time']
             online_str = format_duration(int(now - start_time))
             status = f"🟢 {online_str}"
+            online_count += 1
         else:
             status = "🔴 Не в сети"
         first, last = get_user_info(uid)
         lines.append(f"[id{uid}|{first} {last}] — {status}")
-    return "👑 Руководство:\n" + "\n".join(lines)
+    return "👑 Руководство:\n" + "\n".join(lines), online_count
 
 def list_all_online():
-    return "\n\n".join([list_management(), list_senior(), list_junior()])
+    management_text, management_count = list_management()
+    senior_text, senior_count = list_senior()
+    junior_text, junior_count = list_junior()
+    
+    total_online = management_count + senior_count + junior_count
+    return f"{management_text}\n\n{senior_text}\n\n{junior_text}\n\nОбщее количество онлайн: {total_online}"
 
 # ================= Вход/выход =================
 def enter_user(user_id, peer_id):
@@ -247,7 +246,10 @@ def enter_user(user_id, peer_id):
     admins[user_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
     save_admins()
     role = get_role(user_id)
-    send_msg(peer_id, f"✅ {role} [id{user_id}|{first} {last}] вошел в сеть", user_id)
+    if role == "Руководитель":
+        send_msg(peer_id, f"👑 {role} [id{user_id}|{first} {last}] вошел в сеть!", user_id)
+    else:
+        send_msg(peer_id, f"✅ {role} [id{user_id}|{first} {last}] вошел в сеть", user_id)
 
 def exit_user(user_id, peer_id):
     now = time.time()
@@ -292,13 +294,12 @@ while True:
 
                     # /start
                     if text.lower() == "/start":
-                        send_msg(peer_id, "👋 Привет! Меню бота:", user_id)
+                        send_msg(peer_id, "👋 Привет! Добро пожаловать в группу Логирования!", user_id)
                         continue
 
                     # payload
                     if action:
                         role = get_role(user_id)
-
                         if action == "entered":
                             enter_user(user_id, peer_id)
                         elif action == "exited":
@@ -309,7 +310,7 @@ while True:
                         # Управление ролями
                         elif action in ["add_junior", "remove_junior", "add_senior", "remove_senior", 
                                         "add_management", "remove_management"]:
-                            if role != "Руководство":
+                            if role != "Руководитель":
                                 send_msg(peer_id, "⛔ Недостаточно прав", user_id)
                                 continue
                             waiting_input[user_id] = action
@@ -325,7 +326,7 @@ while True:
                             del waiting_input[user_id]
                             continue
                         first, last = get_user_info(target_id)
-                        target_name = f"{first} {last}"
+                        target_name = f"[id{target_id}|{first} {last}]"
 
                         # Добавление/удаление
                         if act == "add_junior":
@@ -361,11 +362,10 @@ while True:
                         elif act == "add_management":
                             target_id_int = int(target_id)
                             if target_id_int in management:
-                                send_msg(peer_id, f"⚠️ {target_name} уже руководство", user_id)
+                                send_msg(peer_id, f"⚠️ {target_name} уже Руководитель", user_id)
                             else:
                                 management.append(target_id_int)
                                 save_management()
-                                # Отправка текста и стикера
                                 send_msg(peer_id, f"👑 {target_name} назначается Руководителем!", user_id, sticker_id=145)
                         elif act == "remove_management":
                             target_id_int = int(target_id)
