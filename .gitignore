@@ -1,13 +1,16 @@
-# Python
+# База данных
+data/
+*.db
+
+# Логи
+logs/
+*.log
+
+# Временные файлы
 __pycache__/
 *.pyc
-*.pyo
-
-# Environment
 .env
-
-# Google credentials
-credentials.json
-
-# Data
-data/
+venv/
+env/
+.vscode/
+.idea/
