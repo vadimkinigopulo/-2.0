@@ -11,6 +11,10 @@ from vk_api.utils import get_random_id
 import gspread
 from google.oauth2.service_account import Credentials
 
+import datetime
+
+print("UTC:", datetime.datetime.utcnow())
+
 # ================= Настройка логирования =================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
