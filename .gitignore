@@ -1,16 +1,11 @@
-# База данных
-data/
-*.db
-
-# Логи
-logs/
-*.log
-
-# Временные файлы
+# Python кэш
 __pycache__/
 *.pyc
+*.pyo
+
+# Секреты
 .env
-venv/
-env/
-.vscode/
-.idea/
+bot_data.db
+
+# Логи (если создаешь)
+*.log
