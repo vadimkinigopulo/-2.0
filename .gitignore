@@ -1,6 +1,13 @@
-*.pyc
+# Python
 __pycache__/
+*.pyc
+*.pyo
+
+# Environment
 .env
-venv/
-.envrc
-logs/
+
+# Google credentials
+credentials.json
+
+# Data
+data/
