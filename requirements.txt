@@ -1,2 +1,4 @@
-vk-api==11.9.9
-python-dotenv==1.0.0
+vk_api
+gspread
+oauth2client
+python-dotenv
