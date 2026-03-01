@@ -29,13 +29,14 @@ ADMINS_FILE = os.path.join(DATA_DIR, "admins.json")
 SENIOR_FILE = os.path.join(DATA_DIR, "senior_admins.json")
 MANAGEMENT_FILE = os.path.join(DATA_DIR, "management.json")
 
+SYSTEM_MANAGEMENT = [123456789]  # Системные руководители (нельзя удалить)
+
 def load_json(path, default):
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     return default
 
-# Данные с разделением по чатам
 admins = load_json(ADMINS_FILE, {})        # {peer_id: {user_id: {first_name, last_name, start_time}}}
 senior_admins = load_json(SENIOR_FILE, []) # [user_id]
 management = load_json(MANAGEMENT_FILE, [])# [user_id]
@@ -52,14 +53,13 @@ def save_management():
     with open(MANAGEMENT_FILE, "w", encoding="utf-8") as f:
         json.dump(management, f, ensure_ascii=False, indent=2)
 
-# ================= Функция для разделения данных по чатам =================
+# ================= Вспомогательные функции =================
 def get_chat_admins(peer_id):
     peer_id = str(peer_id)
     if peer_id not in admins:
         admins[peer_id] = {}
     return admins[peer_id]
 
-# ================= Вспомогательные функции =================
 def get_user_info(user_id):
     try:
         user = vk.users.get(user_ids=user_id)[0]
@@ -144,20 +144,36 @@ def exit_user(user_id, peer_id):
         return
     info = chat_admins[user_id]
     duration = format_duration(int(now - info["start_time"]))
-    send_msg(peer_id, f"❌ [id{user_id}|{info['first_name']} {info['last_name']}] вышел из сети. Провел(а) онлайн: {duration}", user_id)
+    role = get_role(user_id)
+    send_msg(peer_id, f"❌ {role} [id{user_id}|{info['first_name']} {info['last_name']}] вышел из сети. Провел(а) онлайн: {duration}", user_id)
     del chat_admins[user_id]
     save_admins()
 
 def list_all_online(peer_id):
     chat_admins = get_chat_admins(peer_id)
     now = time.time()
-    if not chat_admins:
-        return "❌ Никого нет онлайн"
-    lines = []
+    
+    management_online = []
+    senior_online = []
+    junior_online = []
+
     for uid, info in chat_admins.items():
-        online = format_duration(int(now - info["start_time"]))
-        lines.append(f"[id{uid}|{info['first_name']} {info['last_name']}] — 🟢 {online}")
-    return "🌐 Онлайн:\n" + "\n".join(lines) + f"\n\nОбщее количество онлайн: {len(chat_admins)}"
+        uid_int = int(uid)
+        online_time = format_duration(int(now - info["start_time"]))
+        entry = f"[id{uid}|{info['first_name']} {info['last_name']}] — 🟢 {online_time}"
+        if uid_int in management:
+            management_online.append(entry)
+        elif uid_int in senior_admins:
+            senior_online.append(entry)
+        else:
+            junior_online.append(entry)
+    
+    text = ""
+    text += "👑 Руководство:\n" + ("\n".join(management_online) if management_online else "Руководство отсутствует.")
+    text += "\n\n👤 Ст. Администраторы:\n" + ("\n".join(senior_online) if senior_online else "Ст. Администраторов нет онлайн.")
+    text += "\n\n👥 Мл. Администраторы онлайн:\n" + ("\n".join(junior_online) if junior_online else "Мл. Администраторов нет онлайн.")
+    text += f"\n\nОбщее количество онлайн: {len(management_online) + len(senior_online) + len(junior_online)}"
+    return text
 
 # ================= Ожидание ввода =================
 waiting_input = {}
@@ -215,8 +231,14 @@ while True:
                     first, last = get_user_info(target_id)
                     target_name = f"[id{target_id}|{first} {last}]"
 
+                    if act in ["remove_management"] and int(target_id) in SYSTEM_MANAGEMENT:
+                        send_msg(peer_id, f"⚠️ {target_name} является системным руководителем и не может быть удален", user_id)
+                        del waiting_input[user_id]
+                        continue
+
+                    chat_admins = get_chat_admins(peer_id)
+
                     if act == "add_junior":
-                        chat_admins = get_chat_admins(peer_id)
                         if target_id in chat_admins:
                             send_msg(peer_id, f"⚠️ {target_name} уже Мл. Администратор", user_id)
                         else:
@@ -224,7 +246,6 @@ while True:
                             save_admins()
                             send_msg(peer_id, f"✅ {target_name} назначен Мл. Администратором", user_id)
                     elif act == "remove_junior":
-                        chat_admins = get_chat_admins(peer_id)
                         if target_id not in chat_admins:
                             send_msg(peer_id, f"⚠️ {target_name} не является Мл. Администратором", user_id)
                         else:
@@ -232,37 +253,38 @@ while True:
                             save_admins()
                             send_msg(peer_id, f"❌ {target_name} удален из Мл. Администраторов", user_id)
                     elif act == "add_senior":
-                        target_id_int = int(target_id)
-                        if target_id_int in senior_admins:
+                        tid = int(target_id)
+                        if tid in senior_admins:
                             send_msg(peer_id, f"⚠️ {target_name} уже Ст. Администратор", user_id)
                         else:
-                            senior_admins.append(target_id_int)
+                            senior_admins.append(tid)
                             save_senior()
                             send_msg(peer_id, f"✅ {target_name} назначен Ст. Администратором", user_id)
                     elif act == "remove_senior":
-                        target_id_int = int(target_id)
-                        if target_id_int not in senior_admins:
+                        tid = int(target_id)
+                        if tid not in senior_admins:
                             send_msg(peer_id, f"⚠️ {target_name} не Ст. Администратор", user_id)
                         else:
-                            senior_admins.remove(target_id_int)
+                            senior_admins.remove(tid)
                             save_senior()
                             send_msg(peer_id, f"❌ {target_name} удален из Ст. Администраторов", user_id)
                     elif act == "add_management":
-                        target_id_int = int(target_id)
-                        if target_id_int in management:
+                        tid = int(target_id)
+                        if tid in management:
                             send_msg(peer_id, f"⚠️ {target_name} уже Руководитель", user_id)
                         else:
-                            management.append(target_id_int)
+                            management.append(tid)
                             save_management()
                             send_msg(peer_id, f"✅ Руководитель {target_name} успешно добавлен", user_id)
                     elif act == "remove_management":
-                        target_id_int = int(target_id)
-                        if target_id_int not in management:
+                        tid = int(target_id)
+                        if tid not in management:
                             send_msg(peer_id, f"⚠️ {target_name} не руководство", user_id)
                         else:
-                            management.remove(target_id_int)
+                            management.remove(tid)
                             save_management()
                             send_msg(peer_id, f"❌ {target_name} удален из руководства", user_id)
+
                     del waiting_input[user_id]
                     continue
 
