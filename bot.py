@@ -42,10 +42,10 @@ def save_json(path, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 # ================= Загрузка данных =================
-admins = load_json(ADMINS_FILE, {})              
-senior_admins = load_json(SENIOR_FILE, [])      
-management = load_json(MANAGEMENT_FILE, [])    
-system_management = load_json(SYSTEM_MANAGEMENT_FILE, [])  
+admins = load_json(ADMINS_FILE, {})              # {peer_id: {user_id: {first_name, last_name, start_time}}}
+senior_admins = load_json(SENIOR_FILE, [])      # [user_id]
+management = load_json(MANAGEMENT_FILE, [])    # [user_id]
+system_management = load_json(SYSTEM_MANAGEMENT_FILE, [])  # [user_id]
 
 # ================= Вспомогательные функции =================
 def get_chat_admins(peer_id):
@@ -78,14 +78,18 @@ def get_role(user_id):
     else:
         return "Мл. Администратор"
 
-# ================= Построение индивидуальной клавиатуры =================
-def build_keyboard(role):
+# ================= Клавиатуры для каждой роли =================
+def build_keyboard(user_id):
+    role = get_role(user_id)
     kb = VkKeyboard(one_time=False)
+    
+    # Общие кнопки для всех
     kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "entered"}))
     kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "exited"}))
     kb.add_line()
     kb.add_button("🌐 Общий онлайн", VkKeyboardColor.SECONDARY, payload=json.dumps({"cmd": "all_online"}))
-    
+
+    # Только для руководителя
     if role == "Руководитель":
         kb.add_line()
         kb.add_button("➕ Мл. Администратор", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "add_junior"}))
@@ -96,11 +100,12 @@ def build_keyboard(role):
         kb.add_line()
         kb.add_button("➕ Руководство", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "add_management"}))
         kb.add_button("➖ Руководство", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "remove_management"}))
+
     return kb.get_keyboard()
 
+# ================= Отправка сообщений =================
 def send_msg(peer_id, text, user_id=None, sticker_id=None):
-    role = get_role(user_id) if user_id else None
-    keyboard = build_keyboard(role) if role else VkKeyboard.get_empty_keyboard()
+    keyboard = build_keyboard(user_id) if user_id else VkKeyboard.get_empty_keyboard()
     params = {
         "peer_id": peer_id,
         "message": text,
@@ -131,13 +136,13 @@ def enter_user(user_id, peer_id):
 
 def exit_user(user_id, peer_id):
     chat_admins = get_chat_admins(peer_id)
+    now = time.time()
     if user_id not in chat_admins:
         send_msg(peer_id, "⚠️ Вы не в сети", user_id)
         return
     info = chat_admins[user_id]
-    duration = format_duration(int(time.time() - info["start_time"]))
+    duration = format_duration(int(now - info["start_time"]))
     role = get_role(user_id)
-    # Сообщение с твоим текстом "вышел(а)"
     send_msg(peer_id, f"{role} [id{user_id}|{info['first_name']} {info['last_name']}] вышел(а). Провел(а) онлайн: {duration}", user_id)
     del chat_admins[user_id]
     save_json(ADMINS_FILE, admins)
@@ -160,7 +165,7 @@ def list_all_online(peer_id):
     # Ст. Админы
     seniors = [uid for uid in senior_admins if str(uid) in chat_admins]
     if seniors:
-        senior_text = "👤 Ст. Администраторы онлайн:\n" + "\n".join(
+        senior_text = "👤 Ст. Администрации онлайн:\n" + "\n".join(
             f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}"
             for uid in seniors
         )
@@ -178,7 +183,7 @@ def list_all_online(peer_id):
         junior_text = "👥 Мл. Администрации: Нет в сети."
 
     total_online = len(chat_admins)
-    return f"{leader_text}\n\n{senior_text}\n\n{junior_text}\n\nОбщее количество онлайн: {total_online}"
+    return f"{leader_text}\n\n{senior_text}\n\n{junior_text}\n\nОбщее количество администрации: {total_online}"
 
 # ================= Ожидание ввода =================
 waiting_input = {}
@@ -236,9 +241,60 @@ while True:
                     first, last = get_user_info(target_id)
                     target_name = f"[id{target_id}|{first} {last}]"
 
-                    # Работа с ролями (аналогично предыдущему коду, без багов)
-                    # ... (можем вставить добавление/удаление Мл, Ст, Руководителя)
-                    # Упрощаю для примера, детали такие же, как в предыдущем коде
+                    # Добавление/удаление Мл Админ
+                    chat_admins = get_chat_admins(peer_id)
+                    if act == "add_junior":
+                        if target_id in chat_admins:
+                            send_msg(peer_id, f"⚠️ {target_name} уже Мл. Администратор", user_id)
+                        else:
+                            chat_admins[target_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
+                            save_json(ADMINS_FILE, admins)
+                            send_msg(peer_id, f"✅ {target_name} назначен Мл. Администратором", user_id)
+                    elif act == "remove_junior":
+                        if target_id not in chat_admins:
+                            send_msg(peer_id, f"⚠️ {target_name} не является Мл. Администратором", user_id)
+                        else:
+                            del chat_admins[target_id]
+                            save_json(ADMINS_FILE, admins)
+                            send_msg(peer_id, f"❌ {target_name} удален из Мл. Администраторов", user_id)
+
+                    # Добавление/удаление Ст. Админ
+                    elif act == "add_senior":
+                        target_id_int = int(target_id)
+                        if target_id_int in senior_admins:
+                            send_msg(peer_id, f"⚠️ {target_name} уже Ст. Администратор", user_id)
+                        else:
+                            senior_admins.append(target_id_int)
+                            save_json(SENIOR_FILE, senior_admins)
+                            send_msg(peer_id, f"✅ {target_name} назначен Ст. Администратором", user_id)
+                    elif act == "remove_senior":
+                        target_id_int = int(target_id)
+                        if target_id_int not in senior_admins:
+                            send_msg(peer_id, f"⚠️ {target_name} не Ст. Администратор", user_id)
+                        else:
+                            senior_admins.remove(target_id_int)
+                            save_json(SENIOR_FILE, senior_admins)
+                            send_msg(peer_id, f"❌ {target_name} удален из Ст. Администраторов", user_id)
+
+                    # Добавление/удаление Руководство
+                    elif act == "add_management":
+                        target_id_int = int(target_id)
+                        if target_id_int in management:
+                            send_msg(peer_id, f"⚠️ {target_name} уже Руководитель", user_id)
+                        else:
+                            management.append(target_id_int)
+                            save_json(MANAGEMENT_FILE, management)
+                            send_msg(peer_id, f"✅ Руководитель {target_name} успешно добавлен", user_id)
+                    elif act == "remove_management":
+                        target_id_int = int(target_id)
+                        if target_id_int in system_management:
+                            send_msg(peer_id, f"⛔ {target_name} является системным руководителем и не может быть снят", user_id)
+                        elif target_id_int not in management:
+                            send_msg(peer_id, f"⚠️ {target_name} не руководство", user_id)
+                        else:
+                            management.remove(target_id_int)
+                            save_json(MANAGEMENT_FILE, management)
+                            send_msg(peer_id, f"❌ {target_name} удален из руководства", user_id)
 
                     del waiting_input[user_id]
                     continue
