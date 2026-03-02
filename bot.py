@@ -78,6 +78,7 @@ def get_role(user_id):
     else:
         return "Мл. Администратор"
 
+# ================= Клавиатура =================
 def build_keyboard(role):
     kb = VkKeyboard(one_time=False)
     kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "entered"}))
@@ -133,7 +134,6 @@ def exit_user(user_id, peer_id):
     info = chat_admins[user_id]
     duration = format_duration(int(now - info["start_time"]))
     role = get_role(user_id)
-    # Отправляем сообщение без стикера
     send_msg(peer_id, f"{role} [id{user_id}|{info['first_name']} {info['last_name']}] вышел(а). Провел(а) онлайн: {duration}", user_id)
     del chat_admins[user_id]
     save_json(ADMINS_FILE, admins)
@@ -144,21 +144,34 @@ def list_all_online(peer_id):
     now = time.time()
     
     leaders = [uid for uid in management if str(uid) in chat_admins]
-    seniors = [uid for uid in senior_admins if str(uid) in chat_admins]
-    juniors = [uid for uid in chat_admins.keys() if int(uid) not in management and int(uid) not in senior_admins]
+    if leaders:
+        leader_text = "👑 Руководители онлайн:\n" + "\n".join(
+            f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}"
+            for uid in leaders
+        )
+    else:
+        leader_text = "👑 Руководителей нет в сети."
 
-    leader_text = "👑 Руководителей Нет в сети" if not leaders else "👑 Руководители онлайн:\n" + "\n".join(
-        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}" for uid in leaders
-    )
-    senior_text = "👤 Ст. Администрации: Нет в сети" if not seniors else "👤 Ст. Администраторы онлайн:\n" + "\n".join(
-        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}" for uid in seniors
-    )
-    junior_text = "👥 Мл. Администрации: Нет в сети" if not juniors else "👥 Мл. Администраторы онлайн:\n" + "\n".join(
-        f"[id{uid}|{chat_admins[uid]['first_name']} {chat_admins[uid]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[uid]['start_time']))}" for uid in juniors
-    )
+    seniors = [uid for uid in senior_admins if str(uid) in chat_admins]
+    if seniors:
+        senior_text = "👤 Ст. Администраторы онлайн:\n" + "\n".join(
+            f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}"
+            for uid in seniors
+        )
+    else:
+        senior_text = "👤 Ст. Администрации: Нет в сети"
+
+    juniors = [uid for uid in chat_admins.keys() if int(uid) not in management and int(uid) not in senior_admins]
+    if juniors:
+        junior_text = "👥 Мл. Администраторы онлайн:\n" + "\n".join(
+            f"[id{uid}|{chat_admins[uid]['first_name']} {chat_admins[uid]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[uid]['start_time']))}"
+            for uid in juniors
+        )
+    else:
+        junior_text = "👥 Мл. Администрации: Нет в сети"
 
     total_online = len(chat_admins)
-    return f"{leader_text}\n\n{senior_text}\n\n{junior_text}\n\nОбщее количество администрации: {total_online}"
+    return f"{leader_text}\n\n{senior_text}\n\n{junior_text}\n\nОбщее количество онлайн: {total_online}"
 
 # ================= Ожидание ввода =================
 waiting_input = {}
@@ -217,7 +230,6 @@ while True:
                     target_name = f"[id{target_id}|{first} {last}]"
 
                     chat_admins = get_chat_admins(peer_id)
-
                     # Добавление/удаление Мл Админ
                     if act == "add_junior":
                         if target_id in chat_admins:
