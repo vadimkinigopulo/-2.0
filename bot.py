@@ -189,6 +189,11 @@ for event in longpoll.listen():
             return None
         return parse_user_input(parts[1])
 
+    # ===== /start =====
+    if text_lower.startswith("/start"):
+        send_msg(peer_id, "👋 Здравствуйте! Это ваш помощник для контроля активности админов. Начнем работу!")
+        continue
+
     # ===== /ahelp =====
     if text_lower.startswith("/ahelp"):
         if not require_manager(): continue
