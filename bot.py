@@ -78,15 +78,12 @@ def get_role(user_id):
     else:
         return "Мл. Администратор"
 
-def build_keyboard(user_id):
-    role = get_role(user_id)
+def build_keyboard(role):
     kb = VkKeyboard(one_time=False)
     kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "entered"}))
     kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "exited"}))
     kb.add_line()
     kb.add_button("🌐 Общий онлайн", VkKeyboardColor.SECONDARY, payload=json.dumps({"cmd": "all_online"}))
-    
-    # Только для руководителя
     if role == "Руководитель":
         kb.add_line()
         kb.add_button("➕ Мл. Администратор", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "add_junior"}))
@@ -99,17 +96,15 @@ def build_keyboard(user_id):
         kb.add_button("➖ Руководство", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "remove_management"}))
     return kb.get_keyboard()
 
-def send_msg(peer_id, text, user_id=None, sticker_id=None):
-    keyboard = build_keyboard(user_id) if user_id else VkKeyboard.get_empty_keyboard()
-    params = {
-        "peer_id": peer_id,
-        "message": text,
-        "random_id": get_random_id(),
-        "keyboard": keyboard
-    }
-    if sticker_id:
-        params["sticker_id"] = sticker_id
-    vk.messages.send(**params)
+def send_msg(peer_id, text, user_id=None):
+    role = get_role(user_id) if user_id else None
+    keyboard = build_keyboard(role) if role else VkKeyboard.get_empty_keyboard()
+    vk.messages.send(
+        peer_id=peer_id,
+        message=text,
+        random_id=get_random_id(),
+        keyboard=keyboard
+    )
 
 def format_duration(sec):
     h = sec // 3600
@@ -120,28 +115,27 @@ def format_duration(sec):
 # ================= Онлайн =================
 def enter_user(user_id, peer_id):
     chat_admins = get_chat_admins(peer_id)
-    user_id_str = str(user_id)
-    if user_id_str in chat_admins:
+    if user_id in chat_admins:
         send_msg(peer_id, "⚠️ Вы уже в сети", user_id)
         return
     first, last = get_user_info(user_id)
-    chat_admins[user_id_str] = {"first_name": first, "last_name": last, "start_time": time.time()}
+    chat_admins[user_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
     save_json(ADMINS_FILE, admins)
     role = get_role(user_id)
     send_msg(peer_id, f"{'👑' if role=='Руководитель' else '✅'} {role} [id{user_id}|{first} {last}] вошел в сеть!", user_id)
 
 def exit_user(user_id, peer_id):
     chat_admins = get_chat_admins(peer_id)
-    user_id_str = str(user_id)
-    if user_id_str not in chat_admins:
+    now = time.time()
+    if user_id not in chat_admins:
         send_msg(peer_id, "⚠️ Вы не в сети", user_id)
         return
-    info = chat_admins[user_id_str]
-    duration = format_duration(int(time.time() - info["start_time"]))
+    info = chat_admins[user_id]
+    duration = format_duration(int(now - info["start_time"]))
     role = get_role(user_id)
-    sticker_id = 14827 if role == "Руководитель" else None
-    send_msg(peer_id, f"{role} [id{user_id}|{info['first_name']} {info['last_name']}] вышел(а). Провел(а) онлайн: {duration}", user_id, sticker_id)
-    del chat_admins[user_id_str]
+    # Отправляем сообщение без стикера
+    send_msg(peer_id, f"{role} [id{user_id}|{info['first_name']} {info['last_name']}] вышел(а). Провел(а) онлайн: {duration}", user_id)
+    del chat_admins[user_id]
     save_json(ADMINS_FILE, admins)
 
 # ================= Список онлайн =================
@@ -150,25 +144,21 @@ def list_all_online(peer_id):
     now = time.time()
     
     leaders = [uid for uid in management if str(uid) in chat_admins]
-    leader_text = "👑 Руководителей Нет в сети." if not leaders else "👑 Руководители онлайн:\n" + "\n".join(
-        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}"
-        for uid in leaders
-    )
-
     seniors = [uid for uid in senior_admins if str(uid) in chat_admins]
-    senior_text = "👤 Ст. Администрации: Нет в сети." if not seniors else "👤 Ст. Администраторы онлайн:\n" + "\n".join(
-        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}"
-        for uid in seniors
-    )
-
     juniors = [uid for uid in chat_admins.keys() if int(uid) not in management and int(uid) not in senior_admins]
-    junior_text = "👥 Мл. Администрации: Нет в сети." if not juniors else "👥 Мл. Администраторы онлайн:\n" + "\n".join(
-        f"[id{uid}|{chat_admins[uid]['first_name']} {chat_admins[uid]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[uid]['start_time']))}"
-        for uid in juniors
+
+    leader_text = "👑 Руководителей Нет в сети" if not leaders else "👑 Руководители онлайн:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}" for uid in leaders
+    )
+    senior_text = "👤 Ст. Администрации: Нет в сети" if not seniors else "👤 Ст. Администраторы онлайн:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}" for uid in seniors
+    )
+    junior_text = "👥 Мл. Администрации: Нет в сети" if not juniors else "👥 Мл. Администраторы онлайн:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[uid]['first_name']} {chat_admins[uid]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[uid]['start_time']))}" for uid in juniors
     )
 
     total_online = len(chat_admins)
-    return f"{leader_text}\n\n{senior_text}\n\n{junior_text}\n\nОбщее количество онлайн: {total_online}"
+    return f"{leader_text}\n\n{senior_text}\n\n{junior_text}\n\nОбщее количество администрации: {total_online}"
 
 # ================= Ожидание ввода =================
 waiting_input = {}
@@ -225,9 +215,10 @@ while True:
                         continue
                     first, last = get_user_info(target_id)
                     target_name = f"[id{target_id}|{first} {last}]"
+
                     chat_admins = get_chat_admins(peer_id)
 
-                    # Мл. Админ
+                    # Добавление/удаление Мл Админ
                     if act == "add_junior":
                         if target_id in chat_admins:
                             send_msg(peer_id, f"⚠️ {target_name} уже Мл. Администратор", user_id)
@@ -242,8 +233,8 @@ while True:
                             del chat_admins[target_id]
                             save_json(ADMINS_FILE, admins)
                             send_msg(peer_id, f"❌ {target_name} удален из Мл. Администраторов", user_id)
-
-                    # Ст. Админ
+                    
+                    # Добавление/удаление Ст. Админ
                     elif act == "add_senior":
                         target_id_int = int(target_id)
                         if target_id_int in senior_admins:
@@ -261,7 +252,7 @@ while True:
                             save_json(SENIOR_FILE, senior_admins)
                             send_msg(peer_id, f"❌ {target_name} удален из Ст. Администраторов", user_id)
 
-                    # Руководство
+                    # Добавление/удаление Руководство
                     elif act == "add_management":
                         target_id_int = int(target_id)
                         if target_id_int in management:
