@@ -133,7 +133,7 @@ def exit_user(user_id, peer_id):
     del chat_admins[user_id]
     save_json(ADMINS_FILE, admins)
 
-# ================= СПИСОК ОНЛАЙН (старый текст) =================
+# ================= СПИСОК ОНЛАЙН =================
 def list_online(peer_id):
     chat_admins = get_chat_admins(peer_id)
     now = time.time()
@@ -175,7 +175,7 @@ for event in longpoll.listen():
     payload = msg.get("payload")
     text_lower = text.lower()
 
-    # ================= КОМАНДЫ =================
+    # ================= КОМАНДЫ РУКОВОДИТЕЛЯ =================
     def require_manager():
         if get_role(user_id) != "Руководитель":
             send_msg(peer_id, "⛔ Недостаточно прав")
@@ -194,8 +194,12 @@ for event in longpoll.listen():
         if not require_manager(): continue
         help_text = (
             "📜 Команды для Руководителей:\n\n"
-            "/addmoder @пользователь — назначить Мл. Администратором\n"
-            "/addmanager @пользователь — добавить в Руководство\n"
+            "/addmoder @ник — назначить Мл. Администратором\n"
+            "/unmoder @ник — снять Мл. Администратора\n"
+            "/addadmins @ник — назначить Ст. Администратором\n"
+            "/unadmin @ник — снять Ст. Администратора\n"
+            "/addmanager @ник — добавить в Руководство\n"
+            "/unmanager @ник — снять из Руководства\n"
             "✅ Вошел — отметить себя в сети\n"
             "❌ Вышел — отметить себя оффлайн\n"
             "🌐 Общий онлайн — посмотреть всех онлайн"
@@ -208,16 +212,50 @@ for event in longpoll.listen():
         if not require_manager(): continue
         target_id = get_target()
         if not target_id: continue
-
         first, last = get_user_info(target_id)
         chat_admins = get_chat_admins(peer_id)
-        chat_admins[target_id] = {
-            "first_name": first,
-            "last_name": last,
-            "start_time": time.time()
-        }
+        chat_admins[target_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
         save_json(ADMINS_FILE, admins)
         send_msg(peer_id, f"✅ [id{target_id}|{first} {last}] назначен Мл. Администратором")
+        continue
+
+    # ===== /unmoder =====
+    if text_lower.startswith("/unmoder"):
+        if not require_manager(): continue
+        target_id = get_target()
+        if not target_id: continue
+        chat_admins = get_chat_admins(peer_id)
+        if target_id in chat_admins:
+            del chat_admins[target_id]
+            save_json(ADMINS_FILE, admins)
+        first, last = get_user_info(target_id)
+        send_msg(peer_id, f"❌ [id{target_id}|{first} {last}] снят с Мл. Администратора")
+        continue
+
+    # ===== /addadmins =====
+    if text_lower.startswith("/addadmins"):
+        if not require_manager(): continue
+        target_id = get_target()
+        if not target_id: continue
+        tid = int(target_id)
+        if tid not in senior_admins:
+            senior_admins.append(tid)
+            save_json(SENIOR_FILE, senior_admins)
+        first, last = get_user_info(target_id)
+        send_msg(peer_id, f"👤 [id{target_id}|{first} {last}] назначен Ст. Администратором")
+        continue
+
+    # ===== /unadmin =====
+    if text_lower.startswith("/unadmin"):
+        if not require_manager(): continue
+        target_id = get_target()
+        if not target_id: continue
+        tid = int(target_id)
+        if tid in senior_admins:
+            senior_admins.remove(tid)
+            save_json(SENIOR_FILE, senior_admins)
+        first, last = get_user_info(target_id)
+        send_msg(peer_id, f"❌ [id{target_id}|{first} {last}] снят со Ст. Администратора")
         continue
 
     # ===== /addmanager =====
@@ -225,14 +263,25 @@ for event in longpoll.listen():
         if not require_manager(): continue
         target_id = get_target()
         if not target_id: continue
-
         tid = int(target_id)
         if tid not in management:
             management.append(tid)
             save_json(MANAGEMENT_FILE, management)
-
         first, last = get_user_info(target_id)
-        send_msg(peer_id, f"👑 [id{target_id}|{first} {last}] добавлен в руководство")
+        send_msg(peer_id, f"👑 [id{target_id}|{first} {last}] добавлен в Руководство")
+        continue
+
+    # ===== /unmanager =====
+    if text_lower.startswith("/unmanager"):
+        if not require_manager(): continue
+        target_id = get_target()
+        if not target_id: continue
+        tid = int(target_id)
+        if tid in management:
+            management.remove(tid)
+            save_json(MANAGEMENT_FILE, management)
+        first, last = get_user_info(target_id)
+        send_msg(peer_id, f"❌ [id{target_id}|{first} {last}] снят из Руководства")
         continue
 
     # ================= КНОПКИ =================
