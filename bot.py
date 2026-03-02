@@ -139,6 +139,7 @@ def enter_user(user_id, peer_id):
     chat_admins[user_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
     save_json(ADMINS_FILE, admins)
     role = get_role(user_id)
+    # ИСПРАВЛЕНО: передаём user_id для клавиатуры
     send_msg(peer_id, f"{'👑' if role=='Руководитель' else '✅'} {role} [id{user_id}|{first} {last}] вошел в сеть!", user_id)
 
 def exit_user(user_id, peer_id):
@@ -150,7 +151,7 @@ def exit_user(user_id, peer_id):
     info = chat_admins[user_id]
     duration = format_duration(int(now - info["start_time"]))
     role = get_role(user_id)
-    # Сохраняем текст который просил
+    # ИСПРАВЛЕНО: передаём user_id для клавиатуры
     send_msg(peer_id, f"{role} [id{user_id}|{info['first_name']} {info['last_name']}] вышел(а). Провел(а) онлайн: {duration}", user_id)
     del chat_admins[user_id]
     save_json(ADMINS_FILE, admins)
@@ -217,6 +218,7 @@ while True:
                     elif action == "exited":
                         exit_user(user_id, peer_id)
                     elif action == "all_online":
+                        # ИСПРАВЛЕНО: передаём user_id для клавиатуры
                         send_msg(peer_id, list_all_online(peer_id), user_id)
                     elif action in ["add_junior","remove_junior","add_senior","remove_senior","add_management","remove_management"]:
                         if role != "Руководитель":
@@ -300,6 +302,9 @@ while True:
                     enter_user(user_id, peer_id)
                 elif text.lower() == "вышел":
                     exit_user(user_id, peer_id)
+                # ИСПРАВЛЕНО: добавил обработку "общий онлайн" текстом
+                elif text.lower() == "общий онлайн":
+                    send_msg(peer_id, list_all_online(peer_id), user_id)
 
             except Exception as e:
                 logger.error(f"Ошибка обработки события: {e}", exc_info=True)
