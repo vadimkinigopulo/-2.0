@@ -133,20 +133,33 @@ def exit_user(user_id, peer_id):
     del chat_admins[user_id]
     save_json(ADMINS_FILE, admins)
 
+# ================= СПИСОК ОНЛАЙН (старый текст) =================
 def list_online(peer_id):
     chat_admins = get_chat_admins(peer_id)
-    if not chat_admins:
-        return "❌ Никто не в сети"
-
     now = time.time()
-    text = "🌐 Онлайн:\n\n"
 
-    for uid, info in chat_admins.items():
-        duration = format_duration(int(now - info["start_time"]))
-        text += f"[id{uid}|{info['first_name']} {info['last_name']}] — 🟢 {duration}\n"
+    leaders = [uid for uid in management if str(uid) in chat_admins]
+    seniors = [uid for uid in senior_admins if str(uid) in chat_admins]
+    juniors = [uid for uid in chat_admins.keys() if int(uid) not in management and int(uid) not in senior_admins]
 
-    text += f"\nОбщее количество: {len(chat_admins)}"
-    return text
+    leader_text = "👑 Руководителей Нет в сети" if not leaders else "👑 Руководители онлайн:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}"
+        for uid in leaders
+    )
+
+    senior_text = "👤 Ст. Администрации: Нет в сети" if not seniors else "👤 Ст. Администраторы онлайн:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}"
+        for uid in seniors
+    )
+
+    junior_text = "👥 Мл. Администрации: Нет в сети" if not juniors else "👥 Мл. Администраторы онлайн:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}"
+        for uid in juniors
+    )
+
+    total_online = len(chat_admins)
+
+    return f"{leader_text}\n\n{senior_text}\n\n{junior_text}\n\nОбщее количество онлайн: {total_online}"
 
 # ================= ГЛАВНЫЙ ЦИКЛ =================
 logger.info("Бот запущен...")
@@ -160,7 +173,6 @@ for event in longpoll.listen():
     peer_id = msg["peer_id"]
     text = msg.get("text", "")
     payload = msg.get("payload")
-
     text_lower = text.lower()
 
     # ================= КОМАНДЫ =================
@@ -177,6 +189,21 @@ for event in longpoll.listen():
             return None
         return parse_user_input(parts[1])
 
+    # ===== /ahelp =====
+    if text_lower.startswith("/ahelp"):
+        if not require_manager(): continue
+        help_text = (
+            "📜 Команды для Руководителей:\n\n"
+            "/addmoder @пользователь — назначить Мл. Администратором\n"
+            "/addmanager @пользователь — добавить в Руководство\n"
+            "✅ Вошел — отметить себя в сети\n"
+            "❌ Вышел — отметить себя оффлайн\n"
+            "🌐 Общий онлайн — посмотреть всех онлайн"
+        )
+        send_msg(peer_id, help_text)
+        continue
+
+    # ===== /addmoder =====
     if text_lower.startswith("/addmoder"):
         if not require_manager(): continue
         target_id = get_target()
@@ -193,6 +220,7 @@ for event in longpoll.listen():
         send_msg(peer_id, f"✅ [id{target_id}|{first} {last}] назначен Мл. Администратором")
         continue
 
+    # ===== /addmanager =====
     if text_lower.startswith("/addmanager"):
         if not require_manager(): continue
         target_id = get_target()
@@ -223,6 +251,5 @@ for event in longpoll.listen():
     # ================= ТЕКСТ =================
     if "вошел" in text_lower:
         enter_user(user_id, peer_id)
-
     elif "вышел" in text_lower:
         exit_user(user_id, peer_id)
