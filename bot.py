@@ -183,9 +183,9 @@ while True:
                 if event.type != VkBotEventType.MESSAGE_NEW:
                     continue
                 msg = event.message
-                user_id = str(msg["from_id"])
+                user_id = int(msg["from_id"])
                 peer_id = msg["peer_id"]
-                text = msg.get("text", "")
+                text = msg.get("text", "").strip()
                 payload = msg.get("payload")
                 action = None
                 if payload:
@@ -193,6 +193,89 @@ while True:
                         payload = json.loads(payload)
                     action = payload.get("cmd")
 
+                # ================= Блок команд для руководителя =================
+                is_chat = peer_id > 2000000000
+                role = get_role(user_id)
+
+                if text.startswith("/"):
+
+                    if not is_chat:
+                        continue
+
+                    if role != "Руководитель":
+                        send_msg(peer_id, "⛔ У вас нет доступа к этим командам.", user_id)
+                        continue
+
+                    parts = text.split()
+                    command = parts[0].lower()
+
+                    if command == "/moder":
+                        if len(parts) != 2 or not parts[1].isdigit():
+                            send_msg(peer_id, "❗ Формат: /moder ID", user_id)
+                            continue
+                        target_id = int(parts[1])
+                        chat_admins = get_chat_admins(peer_id)
+                        chat_admins[str(target_id)] = {"first_name": "Неизвестно", "last_name": "Неизвестно", "start_time": time.time()}
+                        save_json(ADMINS_FILE, admins)
+                        send_msg(peer_id, f"✅ Пользователь [id{target_id}|{target_id}] назначен Мл. Администратором", user_id)
+
+                    elif command == "/unmoder":
+                        if len(parts) != 2 or not parts[1].isdigit():
+                            send_msg(peer_id, "❗ Формат: /unmoder ID", user_id)
+                            continue
+                        target_id = str(int(parts[1]))
+                        chat_admins = get_chat_admins(peer_id)
+                        if target_id in chat_admins:
+                            del chat_admins[target_id]
+                            save_json(ADMINS_FILE, admins)
+                        send_msg(peer_id, f"❌ Пользователь [id{target_id}|{target_id}] снят с роли Мл. Администратора", user_id)
+
+                    elif command == "/admins":
+                        if len(parts) != 2 or not parts[1].isdigit():
+                            send_msg(peer_id, "❗ Формат: /admins ID", user_id)
+                            continue
+                        target_id = int(parts[1])
+                        if target_id not in senior_admins:
+                            senior_admins.append(target_id)
+                            save_json(SENIOR_FILE, senior_admins)
+                        send_msg(peer_id, f"✅ Пользователь [id{target_id}|{target_id}] назначен Ст. Администратором", user_id)
+
+                    elif command == "/unadmins":
+                        if len(parts) != 2 or not parts[1].isdigit():
+                            send_msg(peer_id, "❗ Формат: /unadmins ID", user_id)
+                            continue
+                        target_id = int(parts[1])
+                        if target_id in senior_admins:
+                            senior_admins.remove(target_id)
+                            save_json(SENIOR_FILE, senior_admins)
+                        send_msg(peer_id, f"❌ Пользователь [id{target_id}|{target_id}] снят с роли Ст. Администратора", user_id)
+
+                    elif command == "/manager":
+                        if len(parts) != 2 or not parts[1].isdigit():
+                            send_msg(peer_id, "❗ Формат: /manager ID", user_id)
+                            continue
+                        target_id = int(parts[1])
+                        if target_id not in management:
+                            management.append(target_id)
+                            save_json(MANAGEMENT_FILE, management)
+                        send_msg(peer_id, f"👑 Пользователь [id{target_id}|{target_id}] назначен Руководителем", user_id)
+
+                    elif command == "/unmanager":
+                        if len(parts) != 2 or not parts[1].isdigit():
+                            send_msg(peer_id, "❗ Формат: /unmanager ID", user_id)
+                            continue
+                        target_id = int(parts[1])
+                        if target_id in management:
+                            management.remove(target_id)
+                            save_json(MANAGEMENT_FILE, management)
+                        send_msg(peer_id, f"❌ Пользователь [id{target_id}|{target_id}] снят с роли Руководителя", user_id)
+
+                    else:
+                        send_msg(peer_id, "❗ Неизвестная команда.", user_id)
+
+                    continue
+
+                # ================= Основная логика =================
                 if text.lower() == "/start":
                     send_msg(peer_id, "👋 Привет! Добро пожаловать в группу Логирования!", user_id)
                     continue
@@ -213,12 +296,12 @@ while True:
                         send_msg(peer_id, "📩 Отправьте ID или ссылку администратора для изменения должности", user_id)
                     continue
 
-                if user_id in waiting_input:
-                    act = waiting_input[user_id]
+                if str(user_id) in waiting_input:
+                    act = waiting_input[str(user_id)]
                     target_id = parse_user_input(text)
                     if not target_id:
                         send_msg(peer_id, "❌ Не удалось распознать пользователя. Отправьте ID или ссылку.", user_id)
-                        del waiting_input[user_id]
+                        del waiting_input[str(user_id)]
                         continue
                     first, last = get_user_info(target_id)
                     target_name = f"[id{target_id}|{first} {last}]"
@@ -260,7 +343,7 @@ while True:
                             management.remove(target_id_int)
                             save_json(MANAGEMENT_FILE, management)
                             send_msg(peer_id, f"❌ {target_name} удален из руководства", user_id)
-                    del waiting_input[user_id]
+                    del waiting_input[str(user_id)]
                     continue
 
                 if text.lower() == "вошел":
