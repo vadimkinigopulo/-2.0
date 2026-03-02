@@ -78,15 +78,33 @@ def get_role(user_id):
     else:
         return "Мл. Администратор"
 
-# ================= Строим клавиатуру по роли =================
+# ================= ИСПРАВЛЕННАЯ функция построения клавиатуры =================
 def build_keyboard_for_role(role):
-    kb = VkKeyboard(one_time=False)
-    kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "entered"}))
-    kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "exited"}))
-    kb.add_line()
-    kb.add_button("🌐 Общий онлайн", VkKeyboardColor.SECONDARY, payload=json.dumps({"cmd": "all_online"}))
+    # Для мл. администратора - только базовые кнопки
+    if role == "Мл. Администратор":
+        kb = VkKeyboard(one_time=False)
+        kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "entered"}))
+        kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "exited"}))
+        kb.add_line()
+        kb.add_button("🌐 Общий онлайн", VkKeyboardColor.SECONDARY, payload=json.dumps({"cmd": "all_online"}))
+        return kb.get_keyboard()
     
-    if role == "Руководитель":
+    # Для ст. администратора - тоже только базовые (если нет доп прав)
+    elif role == "Ст. Администратор":
+        kb = VkKeyboard(one_time=False)
+        kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "entered"}))
+        kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "exited"}))
+        kb.add_line()
+        kb.add_button("🌐 Общий онлайн", VkKeyboardColor.SECONDARY, payload=json.dumps({"cmd": "all_online"}))
+        return kb.get_keyboard()
+    
+    # Для руководителя - базовые + кнопки управления
+    elif role == "Руководитель":
+        kb = VkKeyboard(one_time=False)
+        kb.add_button("✅ Вошел", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "entered"}))
+        kb.add_button("❌ Вышел", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "exited"}))
+        kb.add_line()
+        kb.add_button("🌐 Общий онлайн", VkKeyboardColor.SECONDARY, payload=json.dumps({"cmd": "all_online"}))
         kb.add_line()
         kb.add_button("➕ Мл. Администратор", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "add_junior"}))
         kb.add_button("➖ Мл. Администратор", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "remove_junior"}))
@@ -96,8 +114,11 @@ def build_keyboard_for_role(role):
         kb.add_line()
         kb.add_button("➕ Руководство", VkKeyboardColor.POSITIVE, payload=json.dumps({"cmd": "add_management"}))
         kb.add_button("➖ Руководство", VkKeyboardColor.NEGATIVE, payload=json.dumps({"cmd": "remove_management"}))
+        return kb.get_keyboard()
     
-    return kb.get_keyboard()
+    # По умолчанию - пустая клавиатура
+    else:
+        return VkKeyboard.get_empty_keyboard()
 
 # ================= Отправка сообщений =================
 def send_msg(peer_id, text, target_user_id=None, sticker_id=None):
@@ -139,7 +160,6 @@ def enter_user(user_id, peer_id):
     chat_admins[user_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
     save_json(ADMINS_FILE, admins)
     role = get_role(user_id)
-    # ИСПРАВЛЕНО: передаём user_id для клавиатуры
     send_msg(peer_id, f"{'👑' if role=='Руководитель' else '✅'} {role} [id{user_id}|{first} {last}] вошел в сеть!", user_id)
 
 def exit_user(user_id, peer_id):
@@ -151,7 +171,6 @@ def exit_user(user_id, peer_id):
     info = chat_admins[user_id]
     duration = format_duration(int(now - info["start_time"]))
     role = get_role(user_id)
-    # ИСПРАВЛЕНО: передаём user_id для клавиатуры
     send_msg(peer_id, f"{role} [id{user_id}|{info['first_name']} {info['last_name']}] вышел(а). Провел(а) онлайн: {duration}", user_id)
     del chat_admins[user_id]
     save_json(ADMINS_FILE, admins)
@@ -218,7 +237,6 @@ while True:
                     elif action == "exited":
                         exit_user(user_id, peer_id)
                     elif action == "all_online":
-                        # ИСПРАВЛЕНО: передаём user_id для клавиатуры
                         send_msg(peer_id, list_all_online(peer_id), user_id)
                     elif action in ["add_junior","remove_junior","add_senior","remove_senior","add_management","remove_management"]:
                         if role != "Руководитель":
@@ -302,7 +320,6 @@ while True:
                     enter_user(user_id, peer_id)
                 elif text.lower() == "вышел":
                     exit_user(user_id, peer_id)
-                # ИСПРАВЛЕНО: добавил обработку "общий онлайн" текстом
                 elif text.lower() == "общий онлайн":
                     send_msg(peer_id, list_all_online(peer_id), user_id)
 
