@@ -191,14 +191,38 @@ def set_user(target_id):
     role = get_role(target_id)
     send_msg(peer_id, f"✅ {role} [id{target_id}|{first} {last}] добавлен в онлайн вручную")
 
+def remove_user(target_id):
+    chat_admins = get_chat_admins(peer_id)
+    if target_id not in chat_admins:
+        send_msg(peer_id, "⚠️ Пользователь не в онлайн")
+        return
+    first, last = chat_admins[target_id]["first_name"], chat_admins[target_id]["last_name"]
+    del chat_admins[target_id]
+    save_json(ADMINS_FILE, admins)
+    send_msg(peer_id, f"❌ [id{target_id}|{first} {last}] удален из онлайн")
+
 def show_roles():
     chat_admins = get_chat_admins(peer_id)
-    if not chat_admins:
-        send_msg(peer_id, "Никто не в сети")
-        return
-    now = time.time()
-    lines = [f"[id{uid}|{info['first_name']} {info['last_name']}] — {get_role(uid)}" for uid, info in chat_admins.items()]
-    send_msg(peer_id, "📜 Онлайн с ролями:\n" + "\n".join(lines))
+    leaders = [uid for uid in management if str(uid) in chat_admins]
+    seniors = [uid for uid in senior_admins if str(uid) in chat_admins]
+    juniors = [uid for uid in chat_admins.keys() if int(uid) not in management and int(uid) not in senior_admins]
+
+    leader_text = "👑 Руководителей нет" if not leaders else "👑 Руководители:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}]"
+        for uid in leaders
+    )
+
+    senior_text = "👤 Ст. Администрации нет" if not seniors else "👤 Ст. Администраторы:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}]"
+        for uid in seniors
+    )
+
+    junior_text = "👥 Мл. Администрации нет" if not juniors else "👥 Мл. Администраторы:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}]"
+        for uid in juniors
+    )
+
+    send_msg(peer_id, f"{leader_text}\n\n{senior_text}\n\n{junior_text}")
 
 # ================= ГЛАВНЫЙ ЦИКЛ =================
 logger.info("Бот запущен...")
@@ -231,6 +255,7 @@ for event in longpoll.listen():
             "/unmanager @ник — снять из Руководства\n"
             "/astaff — показать всех онлайн с ролями\n"
             "/setuser @ник — добавить пользователя в онлайн вручную\n"
+            "/removeuser @ник — удалить одного человека из онлайн\n"
             "/resetonline — полностью очистить онлайн\n"
             "✅ Вошел(а) — отметить себя в сети\n"
             "❌ Вышел(а) — отметить себя оффлайн\n"
@@ -249,6 +274,13 @@ for event in longpoll.listen():
         target_id = get_target()
         if not target_id: continue
         set_user(target_id)
+        continue
+
+    if text_lower.startswith("/removeuser"):
+        if not require_manager(): continue
+        target_id = get_target()
+        if not target_id: continue
+        remove_user(target_id)
         continue
 
     if text_lower.startswith("/resetonline"):
