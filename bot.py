@@ -21,11 +21,28 @@ vk_session = vk_api.VkApi(token=TOKEN)
 vk = vk_session.get_api()
 longpoll = VkBotLongPoll(vk_session, GROUP_ID)
 
-# ================= В ПАМЯТИ =================
-online = {}            # peer_id: {user_id: {"first_name", "last_name", "start_time"}}
-management = set()     # Руководители
-senior_admins = set()  # Ст. Администраторы
-junior_admins = set()  # Мл. Администраторы
+# ================= ФАЙЛЫ =================
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+ADMINS_FILE = os.path.join(DATA_DIR, "admins.json")
+SENIOR_FILE = os.path.join(DATA_DIR, "senior_admins.json")
+MANAGEMENT_FILE = os.path.join(DATA_DIR, "management.json")
+
+# ================= JSON =================
+def load_json(path, default):
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return default
+
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+admins = load_json(ADMINS_FILE, {})
+senior_admins = load_json(SENIOR_FILE, [])
+management = load_json(MANAGEMENT_FILE, [])
 
 # ================= РОЛИ =================
 def get_role(user_id):
@@ -34,9 +51,7 @@ def get_role(user_id):
         return "Руководитель"
     if uid in senior_admins:
         return "Ст. Администратор"
-    if uid in junior_admins:
-        return "Мл. Администратор"
-    return "Не назначен"
+    return "Мл. Администратор"
 
 # ================= ПОЛЬЗОВАТЕЛЬ =================
 def get_user_info(user_id):
@@ -54,13 +69,6 @@ def parse_user_input(text):
     if text.isdigit():
         return text
     return None
-
-# ================= ВРЕМЯ =================
-def format_duration(sec):
-    h = sec // 3600
-    m = (sec % 3600) // 60
-    s = sec % 60
-    return f"{h}ч {m}м {s}с"
 
 # ================= КЛАВИАТУРА =================
 def build_keyboard():
@@ -81,75 +89,116 @@ def send_msg(peer_id, text):
     )
 
 # ================= ОНЛАЙН =================
-def enter_user(user_id, peer_id):
-    if peer_id not in online:
-        online[peer_id] = {}
-    chat = online[peer_id]
+def get_chat_admins(peer_id):
+    peer_id = str(peer_id)
+    if peer_id not in admins:
+        admins[peer_id] = {}
+    return admins[peer_id]
 
-    if user_id in chat:
+def format_duration(sec):
+    h = sec // 3600
+    m = (sec % 3600) // 60
+    s = sec % 60
+    return f"{h}ч {m}м {s}с"
+
+def enter_user(user_id, peer_id):
+    chat_admins = get_chat_admins(peer_id)
+    if user_id in chat_admins:
         send_msg(peer_id, "⚠️ Вы уже в сети")
         return
 
     first, last = get_user_info(user_id)
-    chat[user_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
+    chat_admins[user_id] = {
+        "first_name": first,
+        "last_name": last,
+        "start_time": time.time()
+    }
+
+    save_json(ADMINS_FILE, admins)
     role = get_role(user_id)
     send_msg(peer_id, f"✅ {role} [id{user_id}|{first} {last}] Вошел(а)")
 
 def exit_user(user_id, peer_id):
-    chat = online.get(peer_id, {})
-    if user_id not in chat:
+    chat_admins = get_chat_admins(peer_id)
+    if user_id not in chat_admins:
         send_msg(peer_id, "⚠️ Вы не в сети")
         return
-    info = chat[user_id]
+
+    info = chat_admins[user_id]
     duration = format_duration(int(time.time() - info["start_time"]))
     role = get_role(user_id)
-    send_msg(peer_id, f"❌ {role} [id{user_id}|{info['first_name']} {info['last_name']}] Вышел(а) Онлайн: {duration}")
-    del chat[user_id]
+
+    send_msg(peer_id, f"❌ {role} [id{user_id}|{info['first_name']} {info['last_name']}] Вышел(а). Онлайн: {duration}")
+
+    del chat_admins[user_id]
+    save_json(ADMINS_FILE, admins)
 
 def list_online(peer_id):
-    chat = online.get(peer_id, {})
+    chat_admins = get_chat_admins(peer_id)
     now = time.time()
-    if not chat:
-        return "Никто не в сети"
-    lines = [f"[id{uid}|{info['first_name']} {info['last_name']}] — {get_role(uid)} 🟢 {format_duration(int(now - info['start_time']))}" for uid, info in chat.items()]
-    return "\n".join(lines)
 
-def reset_online(peer_id):
-    online[peer_id] = {}
-    send_msg(peer_id, "✅ Онлайн очищен полностью")
+    leaders = [uid for uid in management if str(uid) in chat_admins]
+    seniors = [uid for uid in senior_admins if str(uid) in chat_admins]
+    juniors = [uid for uid in chat_admins.keys() if int(uid) not in management and int(uid) not in senior_admins]
 
-def set_user(target_id, peer_id):
-    if peer_id not in online:
-        online[peer_id] = {}
-    chat = online[peer_id]
-    if target_id in chat:
-        send_msg(peer_id, "⚠️ Пользователь уже в онлайн")
-        return
-    first, last = get_user_info(target_id)
-    chat[target_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
-    role = get_role(target_id)
-    send_msg(peer_id, f"✅ {role} [id{target_id}|{first} {last}] добавлен в онлайн вручную")
+    leader_text = "👑 Руководителей Нет в сети" if not leaders else "👑 Руководители онлайн:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}"
+        for uid in leaders
+    )
 
-def show_roles(peer_id):
-    chat = online.get(peer_id, {})
-    if not chat:
-        send_msg(peer_id, "Никто не в сети")
-        return
-    lines = [f"[id{uid}|{info['first_name']} {info['last_name']}] — {get_role(uid)}" for uid, info in chat.items()]
-    send_msg(peer_id, "📜 Онлайн с ролями:\n" + "\n".join(lines))
+    senior_text = "👤 Ст. Администрации: Нет в сети" if not seniors else "👤 Ст. Администраторы онлайн:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}"
+        for uid in seniors
+    )
 
-# ================= ПРОВЕРКА РУКОВОДИТЕЛЯ =================
-def require_manager(user_id, peer_id):
+    junior_text = "👥 Мл. Администрации: Нет в сети" if not juniors else "👥 Мл. Администраторы онлайн:\n" + "\n".join(
+        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}] — 🟢 {format_duration(int(now - chat_admins[str(uid)]['start_time']))}"
+        for uid in juniors
+    )
+
+    total_online = len(chat_admins)
+
+    return f"{leader_text}\n\n{senior_text}\n\n{junior_text}\n\nОбщее количество онлайн: {total_online}"
+
+# ================= РУКОВОДИТЕЛЬ =================
+def require_manager():
     if get_role(user_id) != "Руководитель":
         send_msg(peer_id, "⛔ Недостаточно прав")
         return False
     return True
 
-def get_target(text):
+def get_target():
     parts = text.split()
     if len(parts) < 2:
+        send_msg(peer_id, "❌ Использование: /команда @пользователь")
         return None
     return parse_user_input(parts[1])
+
+def reset_online():
+    chat_admins = get_chat_admins(peer_id)
+    chat_admins.clear()
+    save_json(ADMINS_FILE, admins)
+    send_msg(peer_id, "✅ Онлайн очищен полностью")
+
+def set_user(target_id):
+    chat_admins = get_chat_admins(peer_id)
+    if target_id in chat_admins:
+        send_msg(peer_id, "⚠️ Пользователь уже в онлайн")
+        return
+    first, last = get_user_info(target_id)
+    chat_admins[target_id] = {"first_name": first, "last_name": last, "start_time": time.time()}
+    save_json(ADMINS_FILE, admins)
+    role = get_role(target_id)
+    send_msg(peer_id, f"✅ {role} [id{target_id}|{first} {last}] добавлен в онлайн вручную")
+
+def show_roles():
+    chat_admins = get_chat_admins(peer_id)
+    if not chat_admins:
+        send_msg(peer_id, "Никто не в сети")
+        return
+    now = time.time()
+    lines = [f"[id{uid}|{info['first_name']} {info['last_name']}] — {get_role(uid)}" for uid, info in chat_admins.items()]
+    send_msg(peer_id, "📜 Онлайн с ролями:\n" + "\n".join(lines))
 
 # ================= ГЛАВНЫЙ ЦИКЛ =================
 logger.info("Бот запущен...")
@@ -165,13 +214,13 @@ for event in longpoll.listen():
     payload = msg.get("payload")
     text_lower = text.lower()
 
-    # ===== КОМАНДЫ =====
+    # ===== КОМАНДЫ РУКОВОДИТЕЛЯ =====
     if text_lower.startswith("/start"):
         send_msg(peer_id, "👋 Здравствуйте! Это ваш помощник для контроля активности админов. Начнем работу!")
         continue
 
     if text_lower.startswith("/ahelp"):
-        if not require_manager(user_id, peer_id): continue
+        if not require_manager(): continue
         help_text = (
             "📜 Команды для Руководителей:\n\n"
             "/addmoder @ник — назначить Мл. Администратором\n"
@@ -191,25 +240,23 @@ for event in longpoll.listen():
         continue
 
     if text_lower.startswith("/astaff"):
-        if not require_manager(user_id, peer_id): continue
-        show_roles(peer_id)
+        if not require_manager(): continue
+        show_roles()
         continue
 
     if text_lower.startswith("/setuser"):
-        if not require_manager(user_id, peer_id): continue
-        target_id = get_target(text)
-        if not target_id:
-            send_msg(peer_id, "❌ Использование: /setuser @id")
-            continue
-        set_user(target_id, peer_id)
+        if not require_manager(): continue
+        target_id = get_target()
+        if not target_id: continue
+        set_user(target_id)
         continue
 
     if text_lower.startswith("/resetonline"):
-        if not require_manager(user_id, peer_id): continue
-        reset_online(peer_id)
+        if not require_manager(): continue
+        reset_online()
         continue
 
-    # ===== КНОПКИ =====
+    # ================= КНОПКИ =================
     if payload:
         payload = json.loads(payload)
         cmd = payload.get("cmd")
@@ -221,7 +268,7 @@ for event in longpoll.listen():
             send_msg(peer_id, list_online(peer_id))
         continue
 
-    # ===== ТЕКСТ =====
+    # ================= ТЕКСТ =================
     if "вошел" in text_lower:
         enter_user(user_id, peer_id)
     elif "вышел" in text_lower:
