@@ -202,25 +202,27 @@ def remove_user(target_id):
     send_msg(peer_id, f"❌ [id{target_id}|{first} {last}] удален из онлайн")
 
 def show_roles():
-    chat_admins = get_chat_admins(peer_id)
-    leaders = [uid for uid in management if str(uid) in chat_admins]
-    seniors = [uid for uid in senior_admins if str(uid) in chat_admins]
-    juniors = [uid for uid in chat_admins.keys() if int(uid) not in management and int(uid) not in senior_admins]
+    # Показываем всех участников по ролям, независимо от того, онлайн они или нет
+    leaders = management
+    seniors = senior_admins
+    juniors = []
+    for chat in admins.values():
+        for uid in chat.keys():
+            uid_int = int(uid)
+            if uid_int not in management and uid_int not in senior_admins and uid_int not in juniors:
+                juniors.append(uid_int)
 
-    leader_text = "👑 Руководителей нет" if not leaders else "👑 Руководители:\n" + "\n".join(
-        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}]"
-        for uid in leaders
-    )
+    leader_text = "👑 Руководители:\n" + "\n".join(
+        f"[id{uid}|{get_user_info(uid)[0]} {get_user_info(uid)[1]}]" for uid in leaders
+    ) if leaders else "👑 Руководителей нет"
 
-    senior_text = "👤 Ст. Администрации нет" if not seniors else "👤 Ст. Администраторы:\n" + "\n".join(
-        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}]"
-        for uid in seniors
-    )
+    senior_text = "👤 Ст. Администраторы:\n" + "\n".join(
+        f"[id{uid}|{get_user_info(uid)[0]} {get_user_info(uid)[1]}]" for uid in seniors
+    ) if seniors else "👤 Ст. Администрации нет"
 
-    junior_text = "👥 Мл. Администрации нет" if not juniors else "👥 Мл. Администраторы:\n" + "\n".join(
-        f"[id{uid}|{chat_admins[str(uid)]['first_name']} {chat_admins[str(uid)]['last_name']}]"
-        for uid in juniors
-    )
+    junior_text = "👥 Мл. Администраторы:\n" + "\n".join(
+        f"[id{uid}|{get_user_info(uid)[0]} {get_user_info(uid)[1]}]" for uid in juniors
+    ) if juniors else "👥 Мл. Администрации нет"
 
     send_msg(peer_id, f"{leader_text}\n\n{senior_text}\n\n{junior_text}")
 
@@ -253,7 +255,7 @@ for event in longpoll.listen():
             "/unadmin @ник — снять Ст. Администратора\n"
             "/addmanager @ник — добавить в Руководство\n"
             "/unmanager @ник — снять из Руководства\n"
-            "/astaff — показать всех онлайн с ролями\n"
+            "/astaff — показать всех участников с ролями\n"
             "/setuser @ник — добавить пользователя в онлайн вручную\n"
             "/removeuser @ник — удалить одного человека из онлайн\n"
             "/resetonline — полностью очистить онлайн\n"
