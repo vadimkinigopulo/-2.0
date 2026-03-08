@@ -256,62 +256,55 @@ for event in longpoll.listen():
         send_msg(peer_id,f"❌ [id{target_id}|{first} {last}] снят из Руководства")
         continue
 
-    # ===== НОВЫЕ КОМАНДЫ =====
+    # ===== НОВЫЙ /astaff =====
     if text_lower.startswith("/astaff"):
+        if get_role(user_id) != "Руководитель": 
+            send_msg(peer_id,"⛔ Недостаточно прав")
+            continue
 
-    if get_role(user_id) != "Руководитель":
-        send_msg(peer_id,"⛔ Недостаточно прав")
+        chat_admins = get_chat_admins(peer_id)
+
+        if not chat_admins:
+            send_msg(peer_id,"👥 Мл. Администрации нет")
+            continue
+
+        user_ids = list(chat_admins.keys())
+        users = vk.users.get(user_ids=",".join(user_ids))
+        user_info = {str(u["id"]): f"{u['first_name']} {u['last_name']}" for u in users}
+
+        leaders = []
+        seniors = []
+        juniors = []
+
+        for uid in user_ids:
+            uid_int = int(uid)
+            if uid_int in management:
+                leaders.append(uid)
+            elif uid_int in senior_admins:
+                seniors.append(uid)
+            else:
+                juniors.append(uid)
+
+        leader_text = "👑 Руководителей нет"
+        if leaders:
+            leader_text = "👑 Руководители:\n" + "\n".join(
+                f"[id{uid}|{user_info.get(uid,'Неизвестно')}]" for uid in leaders
+            )
+
+        senior_text = "👤 Ст. Администрации нет"
+        if seniors:
+            senior_text = "👤 Ст. Администраторы:\n" + "\n".join(
+                f"[id{uid}|{user_info.get(uid,'Неизвестно')}]" for uid in seniors
+            )
+
+        junior_text = "👥 Мл. Администрации нет"
+        if juniors:
+            junior_text = "👥 Мл. Администраторы:\n" + "\n".join(
+                f"[id{uid}|{user_info.get(uid,'Неизвестно')}]" for uid in juniors
+            )
+
+        send_msg(peer_id,f"{leader_text}\n\n{senior_text}\n\n{junior_text}")
         continue
-
-    chat_admins = get_chat_admins(peer_id)
-
-    leaders = []
-    seniors = []
-    juniors = []
-
-    for uid in chat_admins.keys():
-
-        uid_int = int(uid)
-
-        if uid_int in management:
-            leaders.append(uid_int)
-
-        elif uid_int in senior_admins:
-            seniors.append(uid_int)
-
-        else:
-            juniors.append(uid_int)
-
-    users = []
-    for uid in chat_admins.keys():
-        users.append(uid)
-
-    users_info = {}
-    if users:
-        info = vk.users.get(user_ids=",".join(users))
-        for u in info:
-            users_info[u["id"]] = f"{u['first_name']} {u['last_name']}"
-
-    leader_text = "👑 Руководителей нет"
-    if leaders:
-        leader_text = "👑 Руководители:\n" + "\n".join(
-            f"[id{uid}|{users_info.get(uid,'Неизвестно')}]" for uid in leaders
-        )
-
-    senior_text = "👤 Ст. Администрации нет"
-    if seniors:
-        senior_text = "👤 Ст. Администраторы:\n" + "\n".join(
-            f"[id{uid}|{users_info.get(uid,'Неизвестно')}]" for uid in seniors
-        )
-
-    junior_text = "👥 Мл. Администрации нет"
-    if juniors:
-        junior_text = "👥 Мл. Администраторы:\n" + "\n".join(
-            f"[id{uid}|{users_info.get(uid,'Неизвестно')}]" for uid in juniors
-        )
-
-    send_msg(peer_id,f"{leader_text}\n\n{senior_text}\n\n{junior_text}")
-    continue
 
     if text_lower.startswith("/setuser"):
         if get_role(user_id) != "Руководитель": send_msg(peer_id,"⛔ Недостаточно прав"); continue
