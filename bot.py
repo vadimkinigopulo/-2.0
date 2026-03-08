@@ -258,20 +258,60 @@ for event in longpoll.listen():
 
     # ===== НОВЫЕ КОМАНДЫ =====
     if text_lower.startswith("/astaff"):
-        if get_role(user_id) != "Руководитель": send_msg(peer_id,"⛔ Недостаточно прав"); continue
-        # показать всех участников с ролями
-        leaders=management
-        seniors=senior_admins
-        juniors=[]
-        for chat in admins.values():
-            for uid in chat.keys():
-                uid_int=int(uid)
-                if uid_int not in management and uid_int not in senior_admins and uid_int not in juniors: juniors.append(uid_int)
-        leader_text="👑 Руководители:\n"+ "\n".join(f"[id{uid}|{get_user_info(uid)[0]} {get_user_info(uid)[1]}]" for uid in leaders) if leaders else "👑 Руководителей нет"
-        senior_text="👤 Ст. Администраторы:\n"+ "\n".join(f"[id{uid}|{get_user_info(uid)[0]} {get_user_info(uid)[1]}]" for uid in seniors) if seniors else "👤 Ст. Администрации нет"
-        junior_text="👥 Мл. Администраторы:\n"+ "\n".join(f"[id{uid}|{get_user_info(uid)[0]} {get_user_info(uid)[1]}]" for uid in juniors) if juniors else "👥 Мл. Администрации нет"
-        send_msg(peer_id,f"{leader_text}\n\n{senior_text}\n\n{junior_text}")
+
+    if get_role(user_id) != "Руководитель":
+        send_msg(peer_id,"⛔ Недостаточно прав")
         continue
+
+    chat_admins = get_chat_admins(peer_id)
+
+    leaders = []
+    seniors = []
+    juniors = []
+
+    for uid in chat_admins.keys():
+
+        uid_int = int(uid)
+
+        if uid_int in management:
+            leaders.append(uid_int)
+
+        elif uid_int in senior_admins:
+            seniors.append(uid_int)
+
+        else:
+            juniors.append(uid_int)
+
+    users = []
+    for uid in chat_admins.keys():
+        users.append(uid)
+
+    users_info = {}
+    if users:
+        info = vk.users.get(user_ids=",".join(users))
+        for u in info:
+            users_info[u["id"]] = f"{u['first_name']} {u['last_name']}"
+
+    leader_text = "👑 Руководителей нет"
+    if leaders:
+        leader_text = "👑 Руководители:\n" + "\n".join(
+            f"[id{uid}|{users_info.get(uid,'Неизвестно')}]" for uid in leaders
+        )
+
+    senior_text = "👤 Ст. Администрации нет"
+    if seniors:
+        senior_text = "👤 Ст. Администраторы:\n" + "\n".join(
+            f"[id{uid}|{users_info.get(uid,'Неизвестно')}]" for uid in seniors
+        )
+
+    junior_text = "👥 Мл. Администрации нет"
+    if juniors:
+        junior_text = "👥 Мл. Администраторы:\n" + "\n".join(
+            f"[id{uid}|{users_info.get(uid,'Неизвестно')}]" for uid in juniors
+        )
+
+    send_msg(peer_id,f"{leader_text}\n\n{senior_text}\n\n{junior_text}")
+    continue
 
     if text_lower.startswith("/setuser"):
         if get_role(user_id) != "Руководитель": send_msg(peer_id,"⛔ Недостаточно прав"); continue
